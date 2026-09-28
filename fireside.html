@@ -1,0 +1,338 @@
+<!doctype html>
+<!-- ECLIPSE STK FIRESIDE R4 SINGLE-FILE FRONTEND | World + Contacts + DM + Xion | backend remains Cloudflare Worker -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#100805">
+<!-- ECLIPSE Fireside production endpoints -->
+<meta name="fireside-api-base" content="https://eclipse-fireside-chat.floresjoshua0426.workers.dev">
+<meta name="fireside-turnstile-site-key" content="0x4AAAAAAAFIRhHpxIcHjwhzM">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://challenges.cloudflare.com 'sha256-CbI1vedOFvdEhc/3uX87z+na5gJIHCcFIrSQY4XAKIE='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://*.workers.dev wss://*.workers.dev https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; upgrade-insecure-requests">
+<meta name="referrer" content="no-referrer">
+<title>Fireside · ECLIPSE STK</title>
+<style>
+:root{color-scheme:dark;--bg:#0b0604;--panel:#1b0f0a;--panel2:#24140d;--line:#56311e;--fire:#ff9d45;--ember:#ffc36d;--text:#fff4e8;--muted:#c9b5a5;--good:#9ee6a6;--bad:#ff9d9d;--shadow:0 18px 60px rgba(0,0,0,.42)}*{box-sizing:border-box}html,body{margin:0;min-height:100%;background:radial-gradient(circle at 50% -10%,#3b1b0f 0,#160a06 38%,#090504 100%);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",sans-serif}body{min-height:100dvh;padding:env(safe-area-inset-top) max(12px,env(safe-area-inset-right)) env(safe-area-inset-bottom) max(12px,env(safe-area-inset-left))}.wrap{width:min(900px,100%);margin:0 auto;padding:16px 0 26px}.top{display:flex;align-items:flex-start;gap:10px;margin-bottom:12px}.back,.ghost{color:var(--ember);text-decoration:none;font-weight:800;padding:10px 12px;border:1px solid var(--line);border-radius:14px;background:#170c08}.title{flex:1}.title h1{font-size:clamp(28px,7vw,42px);margin:0;letter-spacing:-.04em}.title p{margin:2px 0 0;color:var(--muted);font-size:13px}.statusBox{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}.pill{font-size:11px;font-weight:800;border:1px solid var(--line);padding:8px 9px;border-radius:999px;background:#160c08}.pill[data-mode=good]{color:var(--good)}.pill[data-mode=bad]{color:var(--bad)}.pill[data-mode=wait]{color:var(--ember)}button{font:inherit;cursor:pointer}.repair{border:1px solid var(--line);background:#170c08;color:var(--ember);border-radius:999px;padding:8px 10px;font-size:11px;font-weight:800}.card{background:linear-gradient(180deg,rgba(41,21,13,.97),rgba(24,12,8,.99));border:1px solid var(--line);border-radius:24px;box-shadow:var(--shadow);overflow:hidden}.rules{padding:13px 15px;border-bottom:1px solid var(--line);display:flex;gap:9px}.rules span{color:var(--muted);font-size:12px;line-height:1.45}.auth{padding:20px}.auth h2{margin:0 0 5px}.auth p{color:var(--muted);font-size:13px;line-height:1.45}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.field label{display:block;font-size:12px;font-weight:800;margin:0 0 6px}.field input,.composer textarea,.contactSearch input{width:100%;border:1px solid #6a3d25;background:#0f0906;color:var(--text);border-radius:14px;font:inherit;outline:none;padding:13px}.field input:focus,.composer textarea:focus,.contactSearch input:focus{border-color:var(--fire);box-shadow:0 0 0 3px rgba(255,157,69,.14)}.full{grid-column:1/-1}.primary{border:0;border-radius:14px;padding:12px 16px;background:linear-gradient(180deg,#ffb25f,#f28b32);color:#251006;font-weight:900;min-height:44px}.danger{border:1px solid #733939;background:#211010;color:#ffb4b4;border-radius:12px;padding:9px 11px;font-weight:800}.smallBtn{border:1px solid #68402a;background:#201109;color:#ffd6ad;border-radius:11px;padding:8px 10px;font-size:12px;font-weight:800}.notice{min-height:20px;color:var(--muted);font-size:12px;margin-top:8px}.notice[data-bad="1"]{color:var(--bad)}.appHead{display:flex;justify-content:space-between;align-items:center;padding:11px 14px;border-bottom:1px solid var(--line);gap:10px}.member{font-size:12px;color:var(--muted)}.member b{color:var(--ember)}.tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-bottom:1px solid var(--line)}.tab{border:0;background:#130a07;color:var(--muted);padding:13px 8px;font-weight:900}.tab[aria-selected=true]{background:#26140c;color:var(--ember);box-shadow:inset 0 -2px var(--fire)}.pane{min-height:62dvh}.pane[hidden]{display:none}.paneHead{padding:11px 14px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:10px;color:var(--muted);font-size:12px}.messages{overflow:auto;padding:13px;display:flex;flex-direction:column;gap:9px;min-height:340px;max-height:50dvh;scroll-behavior:smooth}.message{border:1px solid #4e2d1c;background:#140b08;border-radius:16px;padding:10px 11px}.message.own{border-color:#82502f;background:#1b0e08}.messageTop{display:flex;justify-content:space-between;gap:10px;align-items:baseline}.who{font-size:13px;color:var(--ember)}time{font-size:10px;color:#9c897a}.message p{margin:6px 0 4px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.4}.messageActions{display:flex;gap:8px;flex-wrap:wrap}.linkBtn{border:0;background:transparent;color:#bca18d;font-size:10px;padding:3px 0}.composer{border-top:1px solid var(--line);padding:11px;background:#120906}.composer textarea{resize:none;min-height:52px;max-height:120px}.composerFoot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:7px}.count{font-size:10px;color:var(--muted)}.contactsWrap{padding:14px}.contactSearch{display:flex;gap:8px}.contactSearch input{min-width:0}.sectionTitle{margin:18px 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}.people{display:flex;flex-direction:column;gap:8px}.person{border:1px solid #49301f;background:#140b08;border-radius:14px;padding:10px;display:flex;justify-content:space-between;gap:10px;align-items:center}.personInfo{min-width:0}.personInfo b{display:block;color:var(--ember);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.personInfo span{font-size:11px;color:var(--muted)}.personActions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}.empty{color:#9f8c7d;font-size:12px;padding:8px 0}.dmShell{display:grid;grid-template-columns:230px 1fr;min-height:62dvh}.dmContacts{border-right:1px solid var(--line);padding:10px;overflow:auto}.dmContact{width:100%;text-align:left;border:1px solid #49301f;background:#140b08;color:var(--text);border-radius:12px;padding:10px;margin-bottom:7px}.dmContact.active{border-color:var(--fire);background:#24140d}.dmContact b{display:block;color:var(--ember)}.dmContact span{font-size:10px;color:var(--muted)}.dmRoom{display:grid;grid-template-rows:auto 1fr auto;min-width:0}.dmTitle{padding:11px 13px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}.xionWrap{padding:14px}.xionIntro{font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:12px}.xionControls{display:grid;grid-template-columns:1fr 1fr;gap:10px}.xionControls label{display:block;font-size:11px;font-weight:800;margin-bottom:5px}.xionControls select,.xionArea{width:100%;border:1px solid #6a3d25;background:#0f0906;color:var(--text);border-radius:13px;font:inherit;padding:11px}.xionArea{min-height:94px;resize:vertical}.xionActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.mic{border:1px solid #7d4527;background:#271207;color:#ffd6ad;border-radius:14px;padding:11px 14px;font-weight:900}.mic[data-recording="1"]{border-color:#b44;color:#ffb4b4;box-shadow:0 0 0 3px rgba(255,80,80,.12)}.xionNote{font-size:11px;color:#a99586;line-height:1.45;margin-top:10px}.safety{margin-top:11px;color:#a99586;font-size:10px;line-height:1.45;text-align:center}.safety b{color:#d9c8b9}@media(max-width:680px){.grid{grid-template-columns:1fr}.xionControls{grid-template-columns:1fr}.full{grid-column:auto}.top{flex-wrap:wrap}.statusBox{width:100%;justify-content:flex-start}.pane{min-height:67dvh}.dmShell{grid-template-columns:1fr}.dmContacts{border-right:0;border-bottom:1px solid var(--line);display:flex;gap:7px;overflow:auto}.dmContact{min-width:150px;margin:0}.messages{max-height:48dvh}.person{align-items:flex-start;flex-direction:column}.personActions{justify-content:flex-start}.contactSearch{flex-direction:column}.contactSearch .primary{width:100%}}
+</style>
+</head>
+<body>
+<main class="wrap">
+<header class="top"><a class="back" href="/" aria-label="Back to ECLIPSE STK">← STK</a><div class="title"><h1>🔥 Fireside</h1><p>Open community · World Chat · Contacts · Direct Messages · Xion Translator</p></div><div class="statusBox"><div id="status" class="pill">Booting…</div><button id="repairBtn" class="repair" type="button">Repair Connection</button></div></header>
+<section class="card">
+<div class="rules"><div>🕯️</div><div><strong>Peace-first communication.</strong><span>Everyone is welcome—no invite required. Every World message and DM must pass the server guardian. No human can approve an unsafe message. Links, scams, spam, explicit sexual content, exposed private information, harassment, threats, hateful attacks, and disrespect toward the Quran/Islam or anyone else's faith are blocked.</span></div></div>
+<div id="authPanel" class="auth">
+<h2>Join Fireside</h2><p>Everyone is welcome. Choose a handle so other members can find and add you.</p>
+<div class="grid">
+<div class="field"><label for="displayName">Display name</label><input id="displayName" maxlength="24" autocomplete="nickname" placeholder="How people see you"></div>
+<div class="field"><label for="handle">Handle</label><input id="handle" maxlength="24" autocapitalize="none" autocomplete="username" placeholder="example: peacefriend"></div>
+<div class="field full"><label>Human verification</label><div id="turnstileSlot"></div></div>
+<div class="full"><button id="registerBtn" class="primary" type="button">Enter Fireside</button><div id="authNotice" class="notice" aria-live="polite"></div></div>
+</div>
+</div>
+<div id="appPanel" hidden>
+<div class="appHead"><div id="memberLine" class="member"></div><button id="logoutBtn" class="smallBtn" type="button">Log out</button></div>
+<nav class="tabs" aria-label="Fireside sections"><button class="tab" data-tab="world" aria-selected="true" type="button">🌎 World</button><button class="tab" data-tab="contacts" aria-selected="false" type="button">🤝 Contacts</button><button class="tab" data-tab="dm" aria-selected="false" type="button">💬 Direct</button><button class="tab" data-tab="xion" aria-selected="false" type="button">🗣️ Xion</button></nav>
+<section id="worldPane" class="pane"><div class="paneHead"><span>World Chat</span><span id="online">0 online</span></div><div id="worldMessages" class="messages" role="log" aria-live="polite"></div><div class="composer"><div id="worldNotice" class="notice" aria-live="polite"></div><textarea id="worldBox" maxlength="280" rows="2" placeholder="Say something kind…"></textarea><div class="composerFoot"><span id="worldCount" class="count">0/280</span><button id="sendWorld" class="primary" type="button">Send</button></div></div></section>
+<section id="contactsPane" class="pane" hidden><div class="contactsWrap"><div class="contactSearch"><input id="contactHandle" maxlength="24" autocapitalize="none" placeholder="Add by handle"><button id="addContactBtn" class="primary" type="button">Add Contact</button></div><div id="contactsNotice" class="notice" aria-live="polite"></div><div class="sectionTitle">Incoming requests</div><div id="incomingList" class="people"></div><div class="sectionTitle">Sent requests</div><div id="outgoingList" class="people"></div><div class="sectionTitle">Your contacts</div><div id="contactList" class="people"></div></div></section>
+<section id="dmPane" class="pane" hidden><div class="dmShell"><div id="dmContacts" class="dmContacts"></div><div id="dmRoom" class="dmRoom"><div id="dmTitle" class="dmTitle">Choose a contact to message</div><div id="dmMessages" class="messages" role="log" aria-live="polite"></div><div class="composer"><div id="dmNotice" class="notice" aria-live="polite"></div><textarea id="dmBox" maxlength="280" rows="2" placeholder="Private message…" disabled></textarea><div class="composerFoot"><span id="dmCount" class="count">0/280</span><button id="sendDm" class="primary" type="button" disabled>Send DM</button></div></div></div></div></section>
+<section id="xionPane" class="pane" hidden><div class="xionWrap"><h2 style="margin:0 0 5px">🗣️ Xion Communication</h2><div class="xionIntro">Speak naturally, let Xion transcribe and translate, read the result, then choose where to place it. <b>Xion never auto-sends.</b></div><div class="xionControls"><div><label for="xionSource">I speak</label><select id="xionSource"><option value="en">English</option><option value="es">Spanish</option><option value="fr">French</option><option value="ar">Arabic</option><option value="ht">Haitian Creole</option><option value="pt">Portuguese</option><option value="de">German</option><option value="it">Italian</option><option value="zh">Chinese</option><option value="ja">Japanese</option><option value="ko">Korean</option><option value="hi">Hindi</option><option value="tr">Turkish</option><option value="ru">Russian</option></select></div><div><label for="xionTarget">Translate to</label><select id="xionTarget"><option value="es">Spanish</option><option value="en">English</option><option value="fr">French</option><option value="ar">Arabic</option><option value="ht">Haitian Creole</option><option value="pt">Portuguese</option><option value="de">German</option><option value="it">Italian</option><option value="zh">Chinese</option><option value="ja">Japanese</option><option value="ko">Korean</option><option value="hi">Hindi</option><option value="tr">Turkish</option><option value="ru">Russian</option></select></div></div><div class="xionActions"><button id="xionMic" class="mic" type="button">🎙️ Start Speaking</button><button id="xionTranslate" class="smallBtn" type="button">Translate Typed Text</button><button id="xionSwap" class="smallBtn" type="button">Swap Languages</button></div><div id="xionNotice" class="notice" aria-live="polite"></div><div class="sectionTitle">What Xion heard / source text</div><textarea id="xionOriginal" class="xionArea" maxlength="280" placeholder="Speak or type up to 280 characters…"></textarea><div class="sectionTitle">Translation — review before sending</div><textarea id="xionTranslated" class="xionArea" maxlength="280" readonly placeholder="Translation appears here…"></textarea><div class="xionActions"><button id="xionRead" class="smallBtn" type="button">🔊 Read Translation</button><button id="xionWorld" class="primary" type="button">Use in World</button><button id="xionDm" class="primary" type="button">Use in DM</button></div><div class="xionNote">Voice clips are sent only to the Fireside Worker for transcription/translation and are not stored in the Fireside database. If microphone capture is unavailable, Xion falls back to browser speech recognition when available; typing always remains available.</div></div></section>
+
+</div>
+</section>
+<p class="safety"><b>Isolation boundary:</b> Fireside has no checkout, order, shipping, Printful, Square, R2/music, catalog mutation, passkey, private Jarvis, or Michael-control bindings. If Fireside fails, those systems remain outside its authority.</p>
+</main>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
+<script>
+window.ECLIPSE_FIRESIDE_CONFIG = Object.freeze({
+  API_BASE: document.querySelector('meta[name="fireside-api-base"]')?.content || "",
+  TURNSTILE_SITE_KEY: document.querySelector('meta[name="fireside-turnstile-site-key"]')?.content || ""
+});
+
+(() => {
+  "use strict";
+  const cfg = window.ECLIPSE_FIRESIDE_CONFIG || {};
+  const el = (id) => document.getElementById(id);
+  const status = el("status"), repairBtn = el("repairBtn"), authPanel = el("authPanel"), appPanel = el("appPanel");
+  const authNotice = el("authNotice"), worldNotice = el("worldNotice"), contactsNotice = el("contactsNotice"), dmNotice = el("dmNotice"), xionNotice = el("xionNotice");
+  const worldMessages = el("worldMessages"), dmMessages = el("dmMessages");
+  let session = localStorage.getItem("eclipseFiresideSession") || "";
+  let me = null, socket = null, reconnectTimer = null, reconnectAttempt = 0, fallbackTimer = null, manualClose = false;
+  let contacts = [], requests = { incoming: [], outgoing: [] }, activeDm = null, locallyHidden = new Set();
+  const pending = new Map();
+  let mediaRecorder = null, mediaStream = null, voiceChunks = [], voiceStopTimer = null, speechRecognition = null;
+
+  function apiBase() { return String(cfg.API_BASE || "").replace(/\/+$/, ""); }
+  let turnstileWidgetId = null, turnstileToken = "";
+  function initTurnstile(){
+    const sitekey=String(cfg.TURNSTILE_SITE_KEY||"").trim();
+    const slot=el("turnstileSlot");
+    if(!slot||!sitekey||/REPLACE-WITH-TURNSTILE/i.test(sitekey))return;
+    const tryRender=()=>{
+      if(!window.turnstile){setTimeout(tryRender,120);return;}
+      if(turnstileWidgetId!==null)return;
+      turnstileWidgetId=window.turnstile.render(slot,{sitekey,theme:"dark",callback:(t)=>{turnstileToken=t||"";},"expired-callback":()=>{turnstileToken="";},"error-callback":()=>{turnstileToken="";}});
+    };
+    tryRender();
+  }
+  function resetTurnstile(){turnstileToken="";try{if(window.turnstile&&turnstileWidgetId!==null)window.turnstile.reset(turnstileWidgetId);}catch{}}
+  function configured() { return /^https:\/\//i.test(apiBase()) && !/REPLACE-WITH-YOUR-WORKER/i.test(apiBase()); }
+  function wsUrl() { return apiBase().replace(/^https:/i, "wss:") + "/ws"; }
+  function setStatus(text, mode = "") { status.textContent = text; status.dataset.mode = mode; }
+  function notice(node, text, bad = false) { node.textContent = text || ""; node.dataset.bad = bad ? "1" : "0"; }
+  function clientId() {
+    if (crypto.randomUUID) return crypto.randomUUID().replace(/-/g, "_");
+    const a = new Uint8Array(18); crypto.getRandomValues(a);
+    return "m_" + Array.from(a, (b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  function formatTime(ms) { try { return new Date(Number(ms)).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); } catch { return ""; } }
+  function authHeaders(extra = {}) { const h = new Headers(extra); if (session) h.set("authorization", `Bearer ${session}`); return h; }
+
+  async function request(path, options = {}, timeoutMs = 9000) {
+    if (!configured()) throw new Error("Set the Cloudflare Worker URL in fireside/config.js first.");
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const headers = authHeaders(options.headers || {});
+      if (options.body && !headers.has("content-type")) headers.set("content-type", "application/json");
+      const res = await fetch(`${apiBase()}${path}`, { ...options, headers, cache: "no-store", signal: controller.signal });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401 && path.startsWith("/api/")) { expireSession(); throw new Error("Your Fireside session expired."); }
+      if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+      return data;
+    } catch (e) {
+      if (e?.name === "AbortError") throw new Error("Network timed out. Tap Repair Connection.");
+      throw e;
+    } finally { clearTimeout(timer); }
+  }
+
+  function showAuth() { authPanel.hidden = false; appPanel.hidden = true; setStatus(configured() ? "Protected entry" : "Setup needed", configured() ? "wait" : "bad"); }
+  function showApp() { authPanel.hidden = true; appPanel.hidden = false; el("memberLine").textContent = ""; const b=document.createElement("b"); b.textContent = me?.display_name || "Member"; el("memberLine").append("Signed in as ", b, me?.handle ? ` · @${me.handle}` : ""); }
+  function expireSession() { try { speechRecognition?.abort?.(); } catch {} stopRecording(); session = ""; me = null; localStorage.removeItem("eclipseFiresideSession"); manualClose = true; try { socket?.close(); } catch {} stopFallback(); showAuth(); }
+
+  async function register() {
+    notice(authNotice, "Entering…");
+    try {
+      if(!turnstileToken) throw new Error("Complete the Fireside safety check first.");
+      const data = await request("/register", { method: "POST", body: JSON.stringify({ display_name: el("displayName").value, handle: el("handle").value, turnstile_token: turnstileToken }) });
+      session = data.session; me = data.user; localStorage.setItem("eclipseFiresideSession", session); resetTurnstile();
+      showApp(); await sync(); connectSocket();
+    } catch (e) { resetTurnstile(); notice(authNotice, e.message, true); }
+  }
+
+  function renderWorldMessage(msg) {
+    if (!msg || locallyHidden.has(Number(msg.id)) || worldMessages.querySelector(`[data-mid="${Number(msg.id)}"]`)) return;
+    const row = document.createElement("article"); row.className = "message" + (Number(msg.user_id) === Number(me?.id) ? " own" : ""); row.dataset.mid = String(Number(msg.id));
+    const top = document.createElement("div"); top.className = "messageTop";
+    const who = document.createElement("strong"); who.className = "who"; who.textContent = `${msg.name || "Member"}${msg.handle ? ` · @${msg.handle}` : ""}`;
+    const when = document.createElement("time"); when.textContent = formatTime(msg.created_at); top.append(who, when);
+    const body = document.createElement("p"); body.textContent = String(msg.text || "");
+    const actions = document.createElement("div"); actions.className = "messageActions";
+    const report = document.createElement("button"); report.className = "linkBtn"; report.type = "button"; report.textContent = "Report"; report.addEventListener("click", () => reportWorld(msg, row)); actions.append(report);
+    if (msg.handle && Number(msg.user_id) !== Number(me?.id)) { const add=document.createElement("button"); add.className="linkBtn"; add.type="button"; add.textContent="Add contact"; add.addEventListener("click",()=>sendContactRequest(msg.handle)); actions.append(add); }
+    row.append(top, body, actions); worldMessages.append(row);
+  }
+
+  function renderWorld(history) { worldMessages.textContent = ""; (history || []).forEach(renderWorldMessage); worldMessages.scrollTop = worldMessages.scrollHeight; }
+  function removeWorld(id) { worldMessages.querySelector(`[data-mid="${Number(id)}"]`)?.remove(); }
+
+  async function reportWorld(msg, row) {
+    if (!confirm("Report and hide this message for you?")) return;
+    locallyHidden.add(Number(msg.id)); row.remove();
+    try { await request("/api/report", { method: "POST", body: JSON.stringify({ id: msg.id }) }); notice(worldNotice, "Reported and hidden for you."); }
+    catch (e) { notice(worldNotice, e.message, true); }
+  }
+
+  function personNode(user, actions = []) {
+    const row=document.createElement("div"); row.className="person"; const info=document.createElement("div"); info.className="personInfo";
+    const b=document.createElement("b"); b.textContent=user.display_name || user.handle || "Member"; const s=document.createElement("span"); s.textContent=user.handle ? `@${user.handle}` : ""; info.append(b,s);
+    const acts=document.createElement("div"); acts.className="personActions"; actions.forEach((a)=>acts.append(a)); row.append(info,acts); return row;
+  }
+  function actionButton(label, fn, danger=false) { const b=document.createElement("button"); b.type="button"; b.className=danger?"danger":"smallBtn"; b.textContent=label; b.addEventListener("click",fn); return b; }
+
+  function renderContacts() {
+    const incoming=el("incomingList"), outgoing=el("outgoingList"), list=el("contactList"); incoming.textContent=""; outgoing.textContent=""; list.textContent="";
+    if (!(requests.incoming||[]).length) incoming.append(emptyNode("No incoming requests."));
+    for (const r of requests.incoming||[]) incoming.append(personNode({display_name:r.display_name,handle:r.handle}, [actionButton("Accept",()=>respondRequest(r.id,"accept")),actionButton("Decline",()=>respondRequest(r.id,"decline"),true)]));
+    if (!(requests.outgoing||[]).length) outgoing.append(emptyNode("No sent requests waiting."));
+    for (const r of requests.outgoing||[]) outgoing.append(personNode({display_name:r.display_name,handle:r.handle}, []));
+    if (!contacts.length) list.append(emptyNode("Add someone by their Fireside handle."));
+    for (const c of contacts) list.append(personNode(c,[actionButton("Message",()=>openDm(c)),actionButton("Remove",()=>removeContact(c)),actionButton("Block",()=>blockContact(c),true)]));
+    renderDmContacts();
+  }
+  function emptyNode(text) { const d=document.createElement("div"); d.className="empty"; d.textContent=text; return d; }
+
+  async function sendContactRequest(handleOverride="") { const handle=(handleOverride||el("contactHandle").value).trim().toLowerCase(); if(!handle)return; notice(contactsNotice,"Sending…"); try{await request("/api/contact-request",{method:"POST",body:JSON.stringify({handle})}); el("contactHandle").value=""; notice(contactsNotice,`Request sent to @${handle}.`); await sync(false);}catch(e){notice(contactsNotice,e.message,true);} }
+  async function respondRequest(id, action){try{await request("/api/contact-respond",{method:"POST",body:JSON.stringify({request_id:id,action})});await sync(false);}catch(e){notice(contactsNotice,e.message,true);}}
+  async function removeContact(c){if(!confirm(`Remove @${c.handle} from your contacts?`))return;try{await request("/api/contact-remove",{method:"POST",body:JSON.stringify({user_id:c.id})});if(activeDm?.id===c.id)activeDm=null;await sync(false);}catch(e){notice(contactsNotice,e.message,true);}}
+  async function blockContact(c){if(!confirm(`Block @${c.handle}? This also removes the contact.`))return;try{await request("/api/block",{method:"POST",body:JSON.stringify({user_id:c.id,block:true})});if(activeDm?.id===c.id)activeDm=null;await sync(false);}catch(e){notice(contactsNotice,e.message,true);}}
+
+  function renderDmContacts(){const box=el("dmContacts");box.textContent="";if(!contacts.length){box.append(emptyNode("No contacts yet."));return;}for(const c of contacts){const b=document.createElement("button");b.type="button";b.className="dmContact"+(activeDm?.id===c.id?" active":"");const strong=document.createElement("b");strong.textContent=c.display_name;const small=document.createElement("span");small.textContent=`@${c.handle}`;b.append(strong,small);b.addEventListener("click",()=>openDm(c));box.append(b);}}
+  async function openDm(c){activeDm=c;switchTab("dm");renderDmContacts();el("dmTitle").textContent=`Private chat with ${c.display_name} · @${c.handle}`;el("dmBox").disabled=false;el("sendDm").disabled=false;await loadDm(true);}
+  function renderDmMessage(m){if(!m||dmMessages.querySelector(`[data-dmid="${Number(m.id)}"]`))return;const row=document.createElement("article");row.className="message"+(Number(m.sender_id)===Number(me?.id)?" own":"");row.dataset.dmid=String(Number(m.id));const top=document.createElement("div");top.className="messageTop";const who=document.createElement("strong");who.className="who";who.textContent=Number(m.sender_id)===Number(me?.id)?"You":(activeDm?.display_name||"Contact");const when=document.createElement("time");when.textContent=formatTime(m.created_at);top.append(who,when);const body=document.createElement("p");body.textContent=String(m.text||"");row.append(top,body);dmMessages.append(row);}
+  async function loadDm(reset=false){if(!activeDm)return;if(reset)dmMessages.textContent="";const last=reset?0:Number(dmMessages.lastElementChild?.dataset?.dmid||0);try{const data=await request(`/api/dm?with=${encodeURIComponent(activeDm.id)}&after=${last}`);(data.messages||[]).forEach(renderDmMessage);dmMessages.scrollTop=dmMessages.scrollHeight;}catch(e){notice(dmNotice,e.message,true);}}
+
+  function applySync(data, replaceWorld=true){me=data.user||me;contacts=data.contacts||[];requests=data.requests||{incoming:[],outgoing:[]};showApp();el("online").textContent=`${Number(data.online||0)} online`;if(replaceWorld)renderWorld(data.world||[]);renderContacts();}
+  async function sync(replaceWorld=true){const data=await request("/api/sync");applySync(data,replaceWorld);return data;}
+
+  function startFallback(){if(fallbackTimer)return;setStatus("HTTPS fallback","wait");fallbackTimer=setInterval(async()=>{if(!session||document.hidden)return;try{await sync(false);if(activeDm)await loadDm(false);}catch{}},6000);}
+  function stopFallback(){clearInterval(fallbackTimer);fallbackTimer=null;}
+  function scheduleReconnect(){clearTimeout(reconnectTimer);reconnectAttempt+=1;const delay=Math.min(15000,800*(2**Math.min(4,reconnectAttempt-1)));if(reconnectAttempt>=2)startFallback();reconnectTimer=setTimeout(()=>connectSocket(),delay);}
+
+  function connectSocket(){if(!session||!configured())return;manualClose=false;try{socket?.close();}catch{}setStatus("Connecting…","wait");let ws;try{ws=new WebSocket(wsUrl(),["fireside",`auth.${session}`]);}catch{startFallback();scheduleReconnect();return;}socket=ws;
+    ws.addEventListener("open",()=>{reconnectAttempt=0;stopFallback();setStatus("Live","good");});
+    ws.addEventListener("message",async(ev)=>{let d;try{d=JSON.parse(ev.data);}catch{return;}if(d.type==="welcome"){applySync(d,true);}else if(d.type==="world"){renderWorldMessage(d.message);worldMessages.scrollTop=worldMessages.scrollHeight;}else if(d.type==="dm"){if(activeDm&&(Number(d.message.sender_id)===activeDm.id||Number(d.message.recipient_id)===activeDm.id)){renderDmMessage(d.message);dmMessages.scrollTop=dmMessages.scrollHeight;}}else if(d.type==="presence"){el("online").textContent=`${Number(d.online||0)} online`;}else if(d.type==="remove_world"){removeWorld(d.id);}else if(d.type==="clear_world"){worldMessages.textContent="";}else if(d.type==="contacts_changed"||d.type==="contact_request"){try{await sync(false);}catch{}}else if(d.type==="moderation"){notice(worldNotice,d.message||"Message blocked.",true);notice(dmNotice,d.message||"Message blocked.",true);}else if(d.type==="session_revoked"){expireSession();notice(authNotice,d.message||"Session ended.",true);}else if(d.type==="ack"){handleAck(d);}});
+    ws.addEventListener("close",()=>{if(!manualClose){setStatus("Reconnecting…","wait");scheduleReconnect();}});ws.addEventListener("error",()=>{setStatus("Network issue","bad");});
+  }
+
+  function handleAck(d){const p=pending.get(String(d.client_id||d.ack||""));if(!p)return;if(d.ok){pending.delete(p.id);if(p.scope==="world"&&el("worldBox").dataset.pending===p.id){el("worldBox").value="";delete el("worldBox").dataset.pending;updateCounts();}if(p.scope==="dm"&&el("dmBox").dataset.pending===p.id){el("dmBox").value="";delete el("dmBox").dataset.pending;updateCounts();}}else{notice(p.scope==="world"?worldNotice:dmNotice,d.error||"Message was not accepted.",true);}setSendBusy(p.scope,false);}
+  function setSendBusy(scope,busy){const b=scope==="world"?el("sendWorld"):el("sendDm");b.disabled=busy||(scope==="dm"&&!activeDm);b.textContent=busy?"Sending…":(scope==="world"?"Send":"Send DM");}
+
+  async function sendMessage(scope){const box=scope==="world"?el("worldBox"):el("dmBox");const text=box.value.normalize("NFKC").trim();if(!text)return;if(text.length>280){notice(scope==="world"?worldNotice:dmNotice,"Keep messages to 280 characters or less.",true);return;}if(scope==="dm"&&!activeDm)return;const id=clientId();const payload={type:"message",scope,text,client_id:id};if(scope==="dm")payload.to_user_id=activeDm.id;pending.set(id,{id,scope,payload});box.dataset.pending=id;localStorage.setItem(`eclipseFiresideDraft:${scope}`,box.value);setSendBusy(scope,true);
+    if(socket&&socket.readyState===WebSocket.OPEN){try{socket.send(JSON.stringify(payload));setTimeout(()=>{if(pending.has(id))sendHttpFallback(id);},3500);return;}catch{}}
+    await sendHttpFallback(id);
+  }
+  async function sendHttpFallback(id){const p=pending.get(id);if(!p)return;try{const data=await request("/api/message",{method:"POST",body:JSON.stringify(p.payload)});handleAck({...data,type:"ack",client_id:id,ok:true});if(p.scope==="world"&&data.message)renderWorldMessage(data.message);if(p.scope==="dm"&&data.message)renderDmMessage(data.message);}catch(e){notice(p.scope==="world"?worldNotice:dmNotice,e.message,true);setSendBusy(p.scope,false);startFallback();}}
+
+  async function repairConnection(){repairBtn.disabled=true;repairBtn.textContent="Repairing…";const worldDraft=el("worldBox").value,dmDraft=el("dmBox").value;try{setStatus("Checking…","wait");const health=await fetch(`${apiBase()}/health`,{cache:"no-store"}).then(r=>r.json());if(!health.ok)throw new Error("Fireside service is not ready.");manualClose=true;try{socket?.close();}catch{}clearTimeout(reconnectTimer);stopFallback();if(session){await sync(true);if(activeDm)await loadDm(true);connectSocket();}else showAuth();el("worldBox").value=worldDraft;el("dmBox").value=dmDraft;updateCounts();setStatus("Repaired","good");}catch(e){setStatus("Repair failed","bad");notice(session?worldNotice:authNotice,e.message,true);startFallback();}finally{repairBtn.disabled=false;repairBtn.textContent="Repair Connection";}}
+
+  function xionLangTag(code) {
+    return ({en:"en-US",es:"es-ES",fr:"fr-FR",ar:"ar-SA",ht:"ht-HT",pt:"pt-BR",de:"de-DE",it:"it-IT",zh:"zh-CN",ja:"ja-JP",ko:"ko-KR",hi:"hi-IN",tr:"tr-TR",ru:"ru-RU"})[code] || "en-US";
+  }
+
+  function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const raw = String(reader.result || "");
+        const comma = raw.indexOf(",");
+        resolve(comma >= 0 ? raw.slice(comma + 1) : raw);
+      };
+      reader.onerror = () => reject(new Error("Xion could not read the voice sample."));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  function stopMediaTracks() {
+    clearTimeout(voiceStopTimer); voiceStopTimer = null;
+    try { mediaStream?.getTracks()?.forEach((t) => t.stop()); } catch {}
+    mediaStream = null;
+  }
+
+  function setMicState(recording) {
+    const b = el("xionMic");
+    b.dataset.recording = recording ? "1" : "0";
+    b.textContent = recording ? "⏹️ Stop & Translate" : "🎙️ Start Speaking";
+  }
+
+  async function translateXionText() {
+    const text = el("xionOriginal").value.normalize("NFKC").trim();
+    if (!text) { notice(xionNotice, "Speak or type something first.", true); return; }
+    if (text.length > 280) { notice(xionNotice, "Keep the phrase to 280 characters or less.", true); return; }
+    notice(xionNotice, "Xion is translating…");
+    el("xionTranslate").disabled = true;
+    try {
+      const data = await request("/api/xion/translate", { method: "POST", body: JSON.stringify({ text, source_lang: el("xionSource").value, target_lang: el("xionTarget").value }) }, 30000);
+      el("xionOriginal").value = data.original || text;
+      el("xionTranslated").value = data.translated || "";
+      notice(xionNotice, "Translation ready. Read it, then choose where to use it.");
+    } catch (e) { notice(xionNotice, e.message, true); }
+    finally { el("xionTranslate").disabled = false; }
+  }
+
+  async function sendVoiceToXion(blob) {
+    if (!blob || blob.size < 100) { notice(xionNotice, "Xion did not receive enough audio.", true); return; }
+    notice(xionNotice, "Xion is listening and translating…");
+    try {
+      const audio = await blobToBase64(blob);
+      const data = await request("/api/xion/transcribe", { method: "POST", body: JSON.stringify({ audio, source_lang: el("xionSource").value, target_lang: el("xionTarget").value }) }, 45000);
+      el("xionOriginal").value = data.transcript || "";
+      el("xionTranslated").value = data.translated || "";
+      notice(xionNotice, "Xion heard you. Review both lines before using the translation.");
+    } catch (e) { notice(xionNotice, e.message, true); }
+  }
+
+  function stopRecording() {
+    clearTimeout(voiceStopTimer); voiceStopTimer = null;
+    if (mediaRecorder && mediaRecorder.state !== "inactive") { try { mediaRecorder.stop(); } catch {} }
+    else stopMediaTracks();
+    setMicState(false);
+  }
+
+  function fallbackSpeechRecognition() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { notice(xionNotice, "This browser cannot capture speech here. Type the phrase and tap Translate Typed Text.", true); return; }
+    try {
+      speechRecognition?.abort?.();
+      const rec = new SR(); speechRecognition = rec;
+      rec.lang = xionLangTag(el("xionSource").value); rec.interimResults = false; rec.continuous = false; rec.maxAlternatives = 1;
+      setMicState(true); notice(xionNotice, "Listening with Safari/browser speech recognition…");
+      rec.onresult = async (ev) => {
+        const text = ev.results?.[0]?.[0]?.transcript || "";
+        el("xionOriginal").value = String(text).slice(0, 280);
+        setMicState(false);
+        if (text) await translateXionText(); else notice(xionNotice, "Xion did not hear enough speech.", true);
+      };
+      rec.onerror = () => { setMicState(false); notice(xionNotice, "Microphone speech recognition did not complete. You can type the phrase instead.", true); };
+      rec.onend = () => setMicState(false);
+      rec.start();
+    } catch { setMicState(false); notice(xionNotice, "Speech capture is unavailable. Type the phrase instead.", true); }
+  }
+
+  async function toggleXionMic() {
+    if (mediaRecorder && mediaRecorder.state === "recording") { stopRecording(); return; }
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") { fallbackSpeechRecognition(); return; }
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+      const candidates = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"];
+      const type = candidates.find((t) => !MediaRecorder.isTypeSupported || MediaRecorder.isTypeSupported(t)) || "";
+      mediaRecorder = type ? new MediaRecorder(mediaStream, { mimeType: type }) : new MediaRecorder(mediaStream);
+      voiceChunks = [];
+      mediaRecorder.addEventListener("dataavailable", (e) => { if (e.data?.size) voiceChunks.push(e.data); });
+      mediaRecorder.addEventListener("stop", async () => {
+        const blob = new Blob(voiceChunks, { type: mediaRecorder?.mimeType || type || "audio/webm" });
+        voiceChunks = []; stopMediaTracks(); mediaRecorder = null; setMicState(false);
+        await sendVoiceToXion(blob);
+      }, { once: true });
+      mediaRecorder.start(250); setMicState(true); notice(xionNotice, "Listening… tap Stop when finished. Xion will stop automatically after 20 seconds.");
+      voiceStopTimer = setTimeout(stopRecording, 20000);
+    } catch { stopMediaTracks(); mediaRecorder = null; setMicState(false); fallbackSpeechRecognition(); }
+  }
+
+  function useXion(scope) {
+    const text = el("xionTranslated").value.trim();
+    if (!text) { notice(xionNotice, "Create a translation first.", true); return; }
+    if (text.length > 280) { notice(xionNotice, "The translation is too long for a Fireside message.", true); return; }
+    if (scope === "dm") {
+      if (!activeDm) { notice(xionNotice, "Choose a Direct Message contact first, then return to Xion.", true); return; }
+      el("dmBox").value = text; updateCounts(); switchTab("dm"); el("dmBox").focus();
+    } else { el("worldBox").value = text; updateCounts(); switchTab("world"); el("worldBox").focus(); }
+  }
+
+  function readXionTranslation() {
+    const text = el("xionTranslated").value.trim();
+    if (!text) { notice(xionNotice, "Create a translation first.", true); return; }
+    if (!("speechSynthesis" in window)) { notice(xionNotice, "Read-aloud is unavailable on this browser, but the text is ready to read and send.", true); return; }
+    try {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text); u.lang = xionLangTag(el("xionTarget").value);
+      const voices = window.speechSynthesis.getVoices?.() || []; const prefix = u.lang.split("-")[0].toLowerCase();
+      const match = voices.find((v) => String(v.lang || "").toLowerCase().startsWith(prefix)); if (match) u.voice = match;
+      window.speechSynthesis.speak(u);
+    } catch { notice(xionNotice, "Read-aloud could not start, but the translation is still ready.", true); }
+  }
+
+  function switchTab(tab){document.querySelectorAll(".tab").forEach((b)=>b.setAttribute("aria-selected",String(b.dataset.tab===tab)));["world","contacts","dm","xion"].forEach((t)=>el(`${t}Pane`).hidden=t!==tab);if(tab==="dm"&&activeDm)loadDm(false);}
+  function updateCounts(){el("worldCount").textContent=`${el("worldBox").value.length}/280`;el("dmCount").textContent=`${el("dmBox").value.length}/280`;localStorage.setItem("eclipseFiresideDraft:world",el("worldBox").value);localStorage.setItem("eclipseFiresideDraft:dm",el("dmBox").value);}
+
+  el("registerBtn").addEventListener("click",register);el("addContactBtn").addEventListener("click",()=>sendContactRequest());el("contactHandle").addEventListener("keydown",e=>{if(e.key==="Enter")sendContactRequest();});el("sendWorld").addEventListener("click",()=>sendMessage("world"));el("sendDm").addEventListener("click",()=>sendMessage("dm"));
+  el("xionMic").addEventListener("click",toggleXionMic);el("xionTranslate").addEventListener("click",translateXionText);el("xionRead").addEventListener("click",readXionTranslation);el("xionWorld").addEventListener("click",()=>useXion("world"));el("xionDm").addEventListener("click",()=>useXion("dm"));el("xionSwap").addEventListener("click",()=>{const a=el("xionSource").value,b=el("xionTarget").value;el("xionSource").value=b;el("xionTarget").value=a;const o=el("xionOriginal").value,t=el("xionTranslated").value;if(t){el("xionOriginal").value=t;el("xionTranslated").value=o;}});
+  for(const id of ["worldBox","dmBox"]){el(id).addEventListener("input",updateCounts);el(id).addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage(id==="worldBox"?"world":"dm");}});}document.querySelectorAll(".tab").forEach(b=>b.addEventListener("click",()=>switchTab(b.dataset.tab)));repairBtn.addEventListener("click",repairConnection);
+  el("logoutBtn").addEventListener("click",async()=>{try{await request("/api/logout",{method:"POST"});}catch{}expireSession();});
+  window.addEventListener("online",()=>{if(session)repairConnection();});window.addEventListener("pageshow",e=>{if(session&&(e.persisted||!socket||socket.readyState!==WebSocket.OPEN))repairConnection();});document.addEventListener("visibilitychange",()=>{if(!document.hidden&&session&&(!socket||socket.readyState!==WebSocket.OPEN))repairConnection();});window.addEventListener("beforeunload",()=>{manualClose=true;try{speechRecognition?.abort?.();}catch{}if(mediaRecorder?.state==="recording")stopRecording();try{socket?.close();}catch{}});
+
+  el("worldBox").value=localStorage.getItem("eclipseFiresideDraft:world")||"";el("dmBox").value=localStorage.getItem("eclipseFiresideDraft:dm")||"";updateCounts();
+  if(!configured()){showAuth();notice(authNotice,"Paste the deployed Worker URL into fireside/config.js first.",true);}else if(session){setStatus("Restoring…","wait");sync(true).then(()=>{connectSocket();}).catch(()=>{if(session)startFallback();});}else showAuth();
+initTurnstile();
+})();
+</script>
+</body></html>
