@@ -1,11 +1,11 @@
 <!doctype html>
-<!-- ECLIPSE STK FIRESIDE R6 MICHAEL GUARDIAN | World + Contacts + DM + Xion | backend remains isolated Cloudflare Worker -->
+<!-- ECLIPSE STK FIRESIDE R7 LOGIN + LOGOUT | World + Contacts + DM + Xion | backend remains isolated Cloudflare Worker -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#100805">
-<meta name="fireside-build" content="R6-MICHAEL-GUARDIAN">
+<meta name="fireside-build" content="R7-LOGIN-LOGOUT">
 <meta name="fireside-security" content="Michael Guardian · server-side · fail-closed · Fireside-only">
 <!-- ECLIPSE Fireside production endpoints -->
 <meta name="fireside-api-base" content="https://eclipse-fireside-chat.floresjoshua0426.workers.dev">
@@ -23,16 +23,19 @@
 <section class="card">
 <div class="rules"><div>🛡️</div><div><strong>Michael Guardian · peace-first.</strong><span>Everyone is welcome—no invite required. Every World message and DM must pass server-side local rules plus the AI safety guardian. If Michael cannot verify the safety gate, publishing fails closed. Links, scams, spam, explicit sexual content, exposed private information, harassment, threats, hateful attacks, self-harm encouragement, and disrespect toward the Quran/Islam or anyone else's faith are blocked.</span></div></div>
 <div id="authPanel" class="auth">
-<h2>Join Fireside</h2><p>Everyone is welcome. Choose a handle so other members can find and add you.</p>
+<h2>Enter Fireside</h2><p>Returning member? Log in with your handle and password. New here? Add a display name and create your account.</p>
 <div class="grid">
-<div class="field"><label for="displayName">Display name</label><input id="displayName" maxlength="24" autocomplete="nickname" placeholder="How people see you"></div>
+<div class="field"><label for="displayName">Display name <span style="font-weight:500;color:var(--muted)">(new accounts only)</span></label><input id="displayName" maxlength="24" autocomplete="nickname" placeholder="How people see you"></div>
 <div class="field"><label for="handle">Handle</label><input id="handle" maxlength="24" autocapitalize="none" autocomplete="username" placeholder="example: peacefriend"></div>
+<div class="field full"><label for="password">Password</label><input id="password" type="password" minlength="10" maxlength="128" autocomplete="current-password" placeholder="10–128 characters"></div>
 <div class="field full"><label>Human verification</label><div id="turnstileSlot"></div></div>
-<div class="full"><button id="registerBtn" class="primary" type="button">Enter Fireside</button><div id="authNotice" class="notice" aria-live="polite"></div></div>
+<div class="full" style="display:flex;gap:8px;flex-wrap:wrap"><button id="loginBtn" class="primary" type="button">Log in</button><button id="registerBtn" class="smallBtn" type="button">Create account</button></div>
+<div class="full"><div id="authNotice" class="notice" aria-live="polite"></div></div>
 </div>
 </div>
 <div id="appPanel" hidden>
 <div class="appHead"><div id="memberLine" class="member"></div><button id="logoutBtn" class="smallBtn" type="button">Log out</button></div>
+<div id="legacyPasswordPanel" class="auth" hidden style="border-bottom:1px solid var(--line);padding-top:14px;padding-bottom:14px"><b>Secure your existing Fireside account</b><p style="margin:5px 0 10px">This account was created before password login was added. Set a password once so you can log back in after logging out.</p><div class="grid"><div class="field"><label for="legacyPassword">New password</label><input id="legacyPassword" type="password" minlength="10" maxlength="128" autocomplete="new-password" placeholder="10–128 characters"></div><div class="field"><label for="legacyPassword2">Confirm password</label><input id="legacyPassword2" type="password" minlength="10" maxlength="128" autocomplete="new-password" placeholder="Repeat password"></div><div class="full"><button id="setPasswordBtn" class="primary" type="button">Set password</button><div id="passwordNotice" class="notice" aria-live="polite"></div></div></div></div>
 <nav class="tabs" aria-label="Fireside sections"><button class="tab" data-tab="world" aria-selected="true" type="button">🌎 World</button><button class="tab" data-tab="contacts" aria-selected="false" type="button">🤝 Contacts</button><button class="tab" data-tab="dm" aria-selected="false" type="button">💬 Direct</button><button class="tab" data-tab="xion" aria-selected="false" type="button">🗣️ Xion</button></nav>
 <section id="worldPane" class="pane"><div class="paneHead"><span>World Chat</span><span id="online">0 online</span></div><div id="worldMessages" class="messages" role="log" aria-live="polite"></div><div class="composer"><div id="worldNotice" class="notice" aria-live="polite"></div><textarea id="worldBox" maxlength="280" rows="2" placeholder="Say something kind…"></textarea><div class="composerFoot"><span id="worldCount" class="count">0/280</span><button id="sendWorld" class="primary" type="button">Send</button></div></div></section>
 <section id="contactsPane" class="pane" hidden><div class="contactsWrap"><div class="contactSearch"><input id="contactHandle" maxlength="24" autocapitalize="none" placeholder="Add by handle"><button id="addContactBtn" class="primary" type="button">Add Contact</button></div><div id="contactsNotice" class="notice" aria-live="polite"></div><div class="sectionTitle">Incoming requests</div><div id="incomingList" class="people"></div><div class="sectionTitle">Sent requests</div><div id="outgoingList" class="people"></div><div class="sectionTitle">Your contacts</div><div id="contactList" class="people"></div></div></section>
@@ -194,17 +197,47 @@ window.ECLIPSE_FIRESIDE_CONFIG = Object.freeze({
   }
 
   function showAuth() { authPanel.hidden = false; appPanel.hidden = true; setStatus(configured() ? "Michael protected entry" : "Setup needed", configured() ? "wait" : "bad"); }
-  function showApp() { authPanel.hidden = true; appPanel.hidden = false; el("memberLine").textContent = ""; const b=document.createElement("b"); b.textContent = me?.display_name || "Member"; el("memberLine").append("Signed in as ", b, me?.handle ? ` · @${me.handle}` : ""); }
-  function expireSession() { try { speechRecognition?.abort?.(); } catch {} stopRecording(); session = ""; me = null; safeStore.remove("eclipseFiresideSession"); manualClose = true; try { socket?.close(); } catch {} stopFallback(); showAuth(); }
+  function showApp() {
+    authPanel.hidden = true; appPanel.hidden = false;
+    el("memberLine").textContent = ""; const b=document.createElement("b"); b.textContent = me?.display_name || "Member"; el("memberLine").append("Signed in as ", b, me?.handle ? ` · @${me.handle}` : "");
+    el("legacyPasswordPanel").hidden = me?.has_password !== false;
+  }
+  function expireSession() { try { speechRecognition?.abort?.(); } catch {} stopRecording(); session = ""; me = null; safeStore.remove("eclipseFiresideSession"); manualClose = true; try { socket?.close(); } catch {} stopFallback(); showAuth(); void initTurnstile(true); }
 
-  async function register() {
-    notice(authNotice, "Entering…");
+  function acceptAuth(data) {
+    session = data.session; me = data.user; safeStore.set("eclipseFiresideSession", session); resetTurnstile();
+    el("password").value = ""; showApp();
+    return sync().then(()=>connectSocket());
+  }
+
+  async function login() {
+    notice(authNotice, "Logging in…");
     try {
       if(!turnstileToken) throw new Error("Complete the Fireside safety check first.");
-      const data = await request("/register", { method: "POST", body: JSON.stringify({ display_name: el("displayName").value, handle: el("handle").value, turnstile_token: turnstileToken }) });
-      session = data.session; me = data.user; safeStore.set("eclipseFiresideSession", session); resetTurnstile();
-      showApp(); await sync(); connectSocket();
+      const data = await request("/login", { method: "POST", body: JSON.stringify({ handle: el("handle").value, password: el("password").value, turnstile_token: turnstileToken }) });
+      await acceptAuth(data);
     } catch (e) { resetTurnstile(); notice(authNotice, e.message, true); }
+  }
+
+  async function register() {
+    notice(authNotice, "Creating account…");
+    try {
+      if(!turnstileToken) throw new Error("Complete the Fireside safety check first.");
+      const data = await request("/register", { method: "POST", body: JSON.stringify({ display_name: el("displayName").value, handle: el("handle").value, password: el("password").value, turnstile_token: turnstileToken }) });
+      await acceptAuth(data);
+    } catch (e) { resetTurnstile(); notice(authNotice, e.message, true); }
+  }
+
+  async function setLegacyPassword() {
+    const a=el("legacyPassword").value,b=el("legacyPassword2").value;
+    notice(el("passwordNotice"), "Saving…");
+    try {
+      if(a!==b) throw new Error("Passwords do not match.");
+      const data=await request("/api/set-password",{method:"POST",body:JSON.stringify({password:a})});
+      if(!data.ok) throw new Error("Password could not be saved.");
+      me={...me,has_password:true}; el("legacyPassword").value=""; el("legacyPassword2").value=""; showApp();
+      notice(el("passwordNotice"), "Password set. You can now log out and return with your handle and password.");
+    } catch(e) { notice(el("passwordNotice"), e.message, true); }
   }
 
   function renderWorldMessage(msg) {
@@ -412,10 +445,10 @@ window.ECLIPSE_FIRESIDE_CONFIG = Object.freeze({
   function switchTab(tab){document.querySelectorAll(".tab").forEach((b)=>b.setAttribute("aria-selected",String(b.dataset.tab===tab)));["world","contacts","dm","xion"].forEach((t)=>el(`${t}Pane`).hidden=t!==tab);if(tab==="dm"&&activeDm)loadDm(false);}
   function updateCounts(){el("worldCount").textContent=`${el("worldBox").value.length}/280`;el("dmCount").textContent=`${el("dmBox").value.length}/280`;draftStore.set("eclipseFiresideDraft:world",el("worldBox").value);draftStore.set("eclipseFiresideDraft:dm",el("dmBox").value);}
 
-  el("registerBtn").addEventListener("click",register);el("addContactBtn").addEventListener("click",()=>sendContactRequest());el("contactHandle").addEventListener("keydown",e=>{if(e.key==="Enter")sendContactRequest();});el("sendWorld").addEventListener("click",()=>sendMessage("world"));el("sendDm").addEventListener("click",()=>sendMessage("dm"));
+  el("loginBtn").addEventListener("click",login);el("registerBtn").addEventListener("click",register);el("setPasswordBtn").addEventListener("click",setLegacyPassword);el("password").addEventListener("keydown",e=>{if(e.key==="Enter")login();});el("addContactBtn").addEventListener("click",()=>sendContactRequest());el("contactHandle").addEventListener("keydown",e=>{if(e.key==="Enter")sendContactRequest();});el("sendWorld").addEventListener("click",()=>sendMessage("world"));el("sendDm").addEventListener("click",()=>sendMessage("dm"));
   el("xionMic").addEventListener("click",toggleXionMic);el("xionTranslate").addEventListener("click",translateXionText);el("xionRead").addEventListener("click",readXionTranslation);el("xionWorld").addEventListener("click",()=>useXion("world"));el("xionDm").addEventListener("click",()=>useXion("dm"));el("xionSwap").addEventListener("click",()=>{const a=el("xionSource").value,b=el("xionTarget").value;el("xionSource").value=b;el("xionTarget").value=a;const o=el("xionOriginal").value,t=el("xionTranslated").value;if(t){el("xionOriginal").value=t;el("xionTranslated").value=o;}});
   for(const id of ["worldBox","dmBox"]){el(id).addEventListener("input",updateCounts);el(id).addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage(id==="worldBox"?"world":"dm");}});}document.querySelectorAll(".tab").forEach(b=>b.addEventListener("click",()=>switchTab(b.dataset.tab)));repairBtn.addEventListener("click",repairConnection);
-  el("logoutBtn").addEventListener("click",async()=>{try{await request("/api/logout",{method:"POST"});}catch{}expireSession();});
+  el("logoutBtn").addEventListener("click",async()=>{if(me?.has_password===false){el("legacyPasswordPanel").hidden=false;notice(el("passwordNotice"),"Set a password before logging out so you do not lock yourself out of this existing account.",true);el("legacyPassword").focus();return;}try{await request("/api/logout",{method:"POST"});}catch{}expireSession();});
   window.addEventListener("online",()=>{if(session)repairConnection();});window.addEventListener("pageshow",e=>{if(session&&(e.persisted||!socket||socket.readyState!==WebSocket.OPEN))repairConnection();});document.addEventListener("visibilitychange",()=>{if(!document.hidden&&session&&(!socket||socket.readyState!==WebSocket.OPEN))repairConnection();});window.addEventListener("beforeunload",()=>{manualClose=true;try{speechRecognition?.abort?.();}catch{}if(mediaRecorder?.state==="recording")stopRecording();try{socket?.close();}catch{}});
 
   setStatus("Verifying Michael…","wait");
