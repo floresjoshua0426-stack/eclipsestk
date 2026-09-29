@@ -1,15 +1,16 @@
 <!doctype html>
-<!-- ECLIPSE STK FIRESIDE R4 SINGLE-FILE FRONTEND | World + Contacts + DM + Xion | backend remains Cloudflare Worker -->
+<!-- ECLIPSE STK FIRESIDE R6 MICHAEL GUARDIAN | World + Contacts + DM + Xion | backend remains isolated Cloudflare Worker -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#100805">
-<meta name="fireside-build" content="R5.1-PATHWAY-ASSIST">
+<meta name="fireside-build" content="R6-MICHAEL-GUARDIAN">
+<meta name="fireside-security" content="Michael Guardian · server-side · fail-closed · Fireside-only">
 <!-- ECLIPSE Fireside production endpoints -->
 <meta name="fireside-api-base" content="https://eclipse-fireside-chat.floresjoshua0426.workers.dev">
 <meta name="fireside-turnstile-site-key" content="0x4AAAAAAFIRhHpxIcHjwhzM">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://challenges.cloudflare.com https://*.challenges.cloudflare.com 'nonce-eclipse-fireside-r51' 'sha256-7nrQ9Bw5BPE4IL3C4UtwDVZVqyz3cbbSFawjqwRnIyo='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://*.workers.dev wss://*.workers.dev https://challenges.cloudflare.com https://*.challenges.cloudflare.com; frame-src https://challenges.cloudflare.com https://*.challenges.cloudflare.com; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; upgrade-insecure-requests">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://challenges.cloudflare.com https://*.challenges.cloudflare.com 'nonce-eclipse-fireside-r51' 'sha256-7nrQ9Bw5BPE4IL3C4UtwDVZVqyz3cbbSFawjqwRnIyo='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://*.workers.dev wss://*.workers.dev https://challenges.cloudflare.com https://*.challenges.cloudflare.com; frame-src https://challenges.cloudflare.com https://*.challenges.cloudflare.com; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; script-src-attr 'none'; upgrade-insecure-requests">
 <meta name="referrer" content="no-referrer">
 <title>Fireside · ECLIPSE STK</title>
 <style>
@@ -18,9 +19,9 @@
 </head>
 <body>
 <main class="wrap">
-<header class="top"><a class="back" href="/" aria-label="Back to ECLIPSE STK">← STK</a><div class="title"><h1>🔥 Fireside</h1><p>Open community · World Chat · Contacts · Direct Messages · Xion Translator</p></div><div class="statusBox"><div id="status" class="pill">Booting…</div><button id="repairBtn" class="repair" type="button">Repair Connection</button></div></header>
+<header class="top"><a class="back" href="/" aria-label="Back to ECLIPSE STK">← STK</a><div class="title"><h1>🔥 Fireside</h1><p>Open community · World Chat · Contacts · Direct Messages · Xion Translator</p></div><div class="statusBox"><div id="status" class="pill">Michael booting…</div><button id="repairBtn" class="repair" type="button">Repair Connection</button></div></header>
 <section class="card">
-<div class="rules"><div>🕯️</div><div><strong>Peace-first communication.</strong><span>Everyone is welcome—no invite required. Every World message and DM must pass the server guardian. No human can approve an unsafe message. Links, scams, spam, explicit sexual content, exposed private information, harassment, threats, hateful attacks, and disrespect toward the Quran/Islam or anyone else's faith are blocked.</span></div></div>
+<div class="rules"><div>🛡️</div><div><strong>Michael Guardian · peace-first.</strong><span>Everyone is welcome—no invite required. Every World message and DM must pass server-side local rules plus the AI safety guardian. If Michael cannot verify the safety gate, publishing fails closed. Links, scams, spam, explicit sexual content, exposed private information, harassment, threats, hateful attacks, self-harm encouragement, and disrespect toward the Quran/Islam or anyone else's faith are blocked.</span></div></div>
 <div id="authPanel" class="auth">
 <h2>Join Fireside</h2><p>Everyone is welcome. Choose a handle so other members can find and add you.</p>
 <div class="grid">
@@ -40,7 +41,7 @@
 
 </div>
 </section>
-<p class="safety"><b>Isolation boundary:</b> Fireside has no checkout, order, shipping, Printful, Square, R2/music, catalog mutation, passkey, private Jarvis, or Michael-control bindings. If Fireside fails, those systems remain outside its authority.</p>
+<p class="safety"><b>Michael isolation boundary:</b> Fireside's Guardian protects this community only. It has no checkout, order, shipping, Printful, Square, R2/music, catalog mutation, passkey, private Jarvis, or STK Michael-control bindings. If Fireside fails, publishing fails closed and those systems remain outside its authority.</p>
 </main>
 <script id="cf-turnstile-api" src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
 <script nonce="eclipse-fireside-r51">
@@ -51,6 +52,7 @@ window.ECLIPSE_FIRESIDE_CONFIG = Object.freeze({
 
 (() => {
   "use strict";
+  try { if (window.top !== window.self) { document.documentElement.textContent = "Fireside cannot run inside another page."; window.top.location = window.location.href; return; } } catch { document.documentElement.textContent = "Fireside cannot run inside another page."; return; }
   const cfg = window.ECLIPSE_FIRESIDE_CONFIG || {};
   const el = (id) => document.getElementById(id);
   const status = el("status"), repairBtn = el("repairBtn"), authPanel = el("authPanel"), appPanel = el("appPanel");
@@ -60,6 +62,11 @@ window.ECLIPSE_FIRESIDE_CONFIG = Object.freeze({
     get(k){ try { return localStorage.getItem(k) || ""; } catch { return ""; } },
     set(k,v){ try { localStorage.setItem(k, v); } catch {} },
     remove(k){ try { localStorage.removeItem(k); } catch {} }
+  };
+  const draftStore = {
+    get(k){ try { return sessionStorage.getItem(k) || ""; } catch { return ""; } },
+    set(k,v){ try { sessionStorage.setItem(k, v); } catch {} },
+    remove(k){ try { sessionStorage.removeItem(k); } catch {} }
   };
   let session = safeStore.get("eclipseFiresideSession");
   let me = null, socket = null, reconnectTimer = null, reconnectAttempt = 0, fallbackTimer = null, manualClose = false;
@@ -141,6 +148,22 @@ window.ECLIPSE_FIRESIDE_CONFIG = Object.freeze({
   }
   function resetTurnstile(){turnstileToken="";try{if(window.turnstile&&turnstileWidgetId!==null)window.turnstile.reset(turnstileWidgetId);}catch{}}
   function configured() { return /^https:\/\//i.test(apiBase()) && !/REPLACE-WITH-YOUR-WORKER/i.test(apiBase()); }
+  function guardianHealthy(health){return Boolean(health?.ok && health?.michael === "server-side-fail-closed-guardian" && health?.brain === "guardian-required" && health?.scope === "fireside-only");}
+  async function checkGuardian(){
+    if(!configured()) throw new Error("Fireside backend is not configured.");
+    const res=await fetch(`${apiBase()}/health`,{cache:"no-store",referrerPolicy:"no-referrer"});
+    const health=await res.json().catch(()=>({}));
+    if(!res.ok||!guardianHealthy(health)) throw new Error("Michael Guardian is not fully verified, so Fireside is locked for safety.");
+    return health;
+  }
+  function localPrivacyWarning(text){
+    const t=String(text||"").normalize("NFKC");
+    if(/(?:https?:\/\/|www\.|discord\.gg\/|t\.me\/|bit\.ly\/|tinyurl\.com\/)/i.test(t)) return "Links are blocked in Fireside.";
+    if(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(t)) return "Email addresses stay private—remove it before sending.";
+    if(/(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}/.test(t)) return "Phone numbers stay private—remove it before sending.";
+    if(/\b\d{3}[- ]?\d{2}[- ]?\d{4}\b/.test(t)) return "Sensitive identity numbers cannot be posted.";
+    return "";
+  }
   function wsUrl() { return apiBase().replace(/^https:/i, "wss:") + "/ws"; }
   function setStatus(text, mode = "") { status.textContent = text; status.dataset.mode = mode; }
   function notice(node, text, bad = false) { node.textContent = text || ""; node.dataset.bad = bad ? "1" : "0"; }
@@ -170,7 +193,7 @@ window.ECLIPSE_FIRESIDE_CONFIG = Object.freeze({
     } finally { clearTimeout(timer); }
   }
 
-  function showAuth() { authPanel.hidden = false; appPanel.hidden = true; setStatus(configured() ? "Protected entry" : "Setup needed", configured() ? "wait" : "bad"); }
+  function showAuth() { authPanel.hidden = false; appPanel.hidden = true; setStatus(configured() ? "Michael protected entry" : "Setup needed", configured() ? "wait" : "bad"); }
   function showApp() { authPanel.hidden = true; appPanel.hidden = false; el("memberLine").textContent = ""; const b=document.createElement("b"); b.textContent = me?.display_name || "Member"; el("memberLine").append("Signed in as ", b, me?.handle ? ` · @${me.handle}` : ""); }
   function expireSession() { try { speechRecognition?.abort?.(); } catch {} stopRecording(); session = ""; me = null; safeStore.remove("eclipseFiresideSession"); manualClose = true; try { socket?.close(); } catch {} stopFallback(); showAuth(); }
 
@@ -252,13 +275,13 @@ window.ECLIPSE_FIRESIDE_CONFIG = Object.freeze({
   function handleAck(d){const p=pending.get(String(d.client_id||d.ack||""));if(!p)return;if(d.ok){pending.delete(p.id);if(p.scope==="world"&&el("worldBox").dataset.pending===p.id){el("worldBox").value="";delete el("worldBox").dataset.pending;updateCounts();}if(p.scope==="dm"&&el("dmBox").dataset.pending===p.id){el("dmBox").value="";delete el("dmBox").dataset.pending;updateCounts();}}else{notice(p.scope==="world"?worldNotice:dmNotice,d.error||"Message was not accepted.",true);}setSendBusy(p.scope,false);}
   function setSendBusy(scope,busy){const b=scope==="world"?el("sendWorld"):el("sendDm");b.disabled=busy||(scope==="dm"&&!activeDm);b.textContent=busy?"Sending…":(scope==="world"?"Send":"Send DM");}
 
-  async function sendMessage(scope){const box=scope==="world"?el("worldBox"):el("dmBox");const text=box.value.normalize("NFKC").trim();if(!text)return;if(text.length>280){notice(scope==="world"?worldNotice:dmNotice,"Keep messages to 280 characters or less.",true);return;}if(scope==="dm"&&!activeDm)return;const id=clientId();const payload={type:"message",scope,text,client_id:id};if(scope==="dm")payload.to_user_id=activeDm.id;pending.set(id,{id,scope,payload});box.dataset.pending=id;safeStore.set(`eclipseFiresideDraft:${scope}`,box.value);setSendBusy(scope,true);
+  async function sendMessage(scope){const box=scope==="world"?el("worldBox"):el("dmBox");const text=box.value.normalize("NFKC").trim();if(!text)return;if(text.length>280){notice(scope==="world"?worldNotice:dmNotice,"Keep messages to 280 characters or less.",true);return;}const privacy=localPrivacyWarning(text);if(privacy){notice(scope==="world"?worldNotice:dmNotice,privacy,true);return;}if(scope==="dm"&&!activeDm)return;const id=clientId();const payload={type:"message",scope,text,client_id:id};if(scope==="dm")payload.to_user_id=activeDm.id;pending.set(id,{id,scope,payload});box.dataset.pending=id;draftStore.set(`eclipseFiresideDraft:${scope}`,box.value);setSendBusy(scope,true);
     if(socket&&socket.readyState===WebSocket.OPEN){try{socket.send(JSON.stringify(payload));setTimeout(()=>{if(pending.has(id))sendHttpFallback(id);},3500);return;}catch{}}
     await sendHttpFallback(id);
   }
   async function sendHttpFallback(id){const p=pending.get(id);if(!p)return;try{const data=await request("/api/message",{method:"POST",body:JSON.stringify(p.payload)});handleAck({...data,type:"ack",client_id:id,ok:true});if(p.scope==="world"&&data.message)renderWorldMessage(data.message);if(p.scope==="dm"&&data.message)renderDmMessage(data.message);}catch(e){notice(p.scope==="world"?worldNotice:dmNotice,e.message,true);setSendBusy(p.scope,false);startFallback();}}
 
-  async function repairConnection(){repairBtn.disabled=true;repairBtn.textContent="Repairing…";const worldDraft=el("worldBox").value,dmDraft=el("dmBox").value;try{setStatus("Checking…","wait");const health=await fetch(`${apiBase()}/health`,{cache:"no-store"}).then(r=>r.json());if(!health.ok)throw new Error("Fireside service is not ready.");manualClose=true;try{socket?.close();}catch{}clearTimeout(reconnectTimer);stopFallback();if(session){await sync(true);if(activeDm)await loadDm(true);connectSocket();}else{showAuth();await initTurnstile(true);}el("worldBox").value=worldDraft;el("dmBox").value=dmDraft;updateCounts();setStatus("Repaired","good");}catch(e){setStatus("Repair failed","bad");notice(session?worldNotice:authNotice,e.message,true);startFallback();}finally{repairBtn.disabled=false;repairBtn.textContent="Repair Connection";}}
+  async function repairConnection(){repairBtn.disabled=true;repairBtn.textContent="Repairing…";const worldDraft=el("worldBox").value,dmDraft=el("dmBox").value;try{setStatus("Checking Michael…","wait");await checkGuardian();manualClose=true;try{socket?.close();}catch{}clearTimeout(reconnectTimer);stopFallback();if(session){await sync(true);if(activeDm)await loadDm(true);connectSocket();}else{showAuth();await initTurnstile(true);}el("worldBox").value=worldDraft;el("dmBox").value=dmDraft;updateCounts();setStatus("Michael protected","good");}catch(e){setStatus("Repair failed","bad");notice(session?worldNotice:authNotice,e.message,true);startFallback();}finally{repairBtn.disabled=false;repairBtn.textContent="Repair Connection";}}
 
   function xionLangTag(code) {
     return ({en:"en-US",es:"es-ES",fr:"fr-FR",ar:"ar-SA",ht:"ht-HT",pt:"pt-BR",de:"de-DE",it:"it-IT",zh:"zh-CN",ja:"ja-JP",ko:"ko-KR",hi:"hi-IN",tr:"tr-TR",ru:"ru-RU"})[code] || "en-US";
@@ -387,7 +410,7 @@ window.ECLIPSE_FIRESIDE_CONFIG = Object.freeze({
   }
 
   function switchTab(tab){document.querySelectorAll(".tab").forEach((b)=>b.setAttribute("aria-selected",String(b.dataset.tab===tab)));["world","contacts","dm","xion"].forEach((t)=>el(`${t}Pane`).hidden=t!==tab);if(tab==="dm"&&activeDm)loadDm(false);}
-  function updateCounts(){el("worldCount").textContent=`${el("worldBox").value.length}/280`;el("dmCount").textContent=`${el("dmBox").value.length}/280`;safeStore.set("eclipseFiresideDraft:world",el("worldBox").value);safeStore.set("eclipseFiresideDraft:dm",el("dmBox").value);}
+  function updateCounts(){el("worldCount").textContent=`${el("worldBox").value.length}/280`;el("dmCount").textContent=`${el("dmBox").value.length}/280`;draftStore.set("eclipseFiresideDraft:world",el("worldBox").value);draftStore.set("eclipseFiresideDraft:dm",el("dmBox").value);}
 
   el("registerBtn").addEventListener("click",register);el("addContactBtn").addEventListener("click",()=>sendContactRequest());el("contactHandle").addEventListener("keydown",e=>{if(e.key==="Enter")sendContactRequest();});el("sendWorld").addEventListener("click",()=>sendMessage("world"));el("sendDm").addEventListener("click",()=>sendMessage("dm"));
   el("xionMic").addEventListener("click",toggleXionMic);el("xionTranslate").addEventListener("click",translateXionText);el("xionRead").addEventListener("click",readXionTranslation);el("xionWorld").addEventListener("click",()=>useXion("world"));el("xionDm").addEventListener("click",()=>useXion("dm"));el("xionSwap").addEventListener("click",()=>{const a=el("xionSource").value,b=el("xionTarget").value;el("xionSource").value=b;el("xionTarget").value=a;const o=el("xionOriginal").value,t=el("xionTranslated").value;if(t){el("xionOriginal").value=t;el("xionTranslated").value=o;}});
@@ -395,13 +418,18 @@ window.ECLIPSE_FIRESIDE_CONFIG = Object.freeze({
   el("logoutBtn").addEventListener("click",async()=>{try{await request("/api/logout",{method:"POST"});}catch{}expireSession();});
   window.addEventListener("online",()=>{if(session)repairConnection();});window.addEventListener("pageshow",e=>{if(session&&(e.persisted||!socket||socket.readyState!==WebSocket.OPEN))repairConnection();});document.addEventListener("visibilitychange",()=>{if(!document.hidden&&session&&(!socket||socket.readyState!==WebSocket.OPEN))repairConnection();});window.addEventListener("beforeunload",()=>{manualClose=true;try{speechRecognition?.abort?.();}catch{}if(mediaRecorder?.state==="recording")stopRecording();try{socket?.close();}catch{}});
 
-  setStatus("Pathway assist…","wait");
+  setStatus("Verifying Michael…","wait");
   try{
-    el("worldBox").value=safeStore.get("eclipseFiresideDraft:world");el("dmBox").value=safeStore.get("eclipseFiresideDraft:dm");updateCounts();
+    safeStore.remove("eclipseFiresideDraft:world");safeStore.remove("eclipseFiresideDraft:dm");
+    el("worldBox").value=draftStore.get("eclipseFiresideDraft:world");el("dmBox").value=draftStore.get("eclipseFiresideDraft:dm");updateCounts();
     if(!configured()){showAuth();notice(authNotice,"Fireside backend is not configured.",true);}
-    else if(session){setStatus("Restoring…","wait");sync(true).then(()=>{connectSocket();}).catch(()=>{if(session)startFallback();});}
-    else showAuth();
-    void initTurnstile(false);
+    else {
+      checkGuardian().then(()=>{
+        if(session){setStatus("Restoring…","wait");sync(true).then(()=>{connectSocket();}).catch(()=>{if(session)startFallback();});}
+        else showAuth();
+        void initTurnstile(false);
+      }).catch((e)=>{showAuth();setStatus("Michael locked","bad");notice(authNotice,e.message,true);});
+    }
   }catch(e){
     showAuth();
     setStatus("Pathway recovery","wait");
