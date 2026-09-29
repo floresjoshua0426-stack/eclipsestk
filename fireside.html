@@ -5,10 +5,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#100805">
+<meta name="fireside-build" content="R5-PATHWAY-ASSIST">
 <!-- ECLIPSE Fireside production endpoints -->
 <meta name="fireside-api-base" content="https://eclipse-fireside-chat.floresjoshua0426.workers.dev">
 <meta name="fireside-turnstile-site-key" content="0x4AAAAAAAFIRhHpxIcHjwhzM">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://challenges.cloudflare.com 'sha256-H8vzSEVRrkd6tCwmcS64mte5XQ49wIw4J69ELQFdrfE='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://*.workers.dev wss://*.workers.dev https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; upgrade-insecure-requests">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://challenges.cloudflare.com 'nonce-eclipse-fireside-r5' 'sha256-Mza/21R++h+PYrC3T6H/BDTPg/T8v8nSJZSoRS/FIzM='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://*.workers.dev wss://*.workers.dev https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; upgrade-insecure-requests">
 <meta name="referrer" content="no-referrer">
 <title>Fireside · ECLIPSE STK</title>
 <style>
@@ -41,8 +42,8 @@
 </section>
 <p class="safety"><b>Isolation boundary:</b> Fireside has no checkout, order, shipping, Printful, Square, R2/music, catalog mutation, passkey, private Jarvis, or Michael-control bindings. If Fireside fails, those systems remain outside its authority.</p>
 </main>
-<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
-<script>
+<script id="cf-turnstile-api" src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
+<script nonce="eclipse-fireside-r5">
 window.ECLIPSE_FIRESIDE_CONFIG = Object.freeze({
   API_BASE: document.querySelector('meta[name="fireside-api-base"]')?.content || "",
   TURNSTILE_SITE_KEY: document.querySelector('meta[name="fireside-turnstile-site-key"]')?.content || ""
@@ -55,7 +56,12 @@ window.ECLIPSE_FIRESIDE_CONFIG = Object.freeze({
   const status = el("status"), repairBtn = el("repairBtn"), authPanel = el("authPanel"), appPanel = el("appPanel");
   const authNotice = el("authNotice"), worldNotice = el("worldNotice"), contactsNotice = el("contactsNotice"), dmNotice = el("dmNotice"), xionNotice = el("xionNotice");
   const worldMessages = el("worldMessages"), dmMessages = el("dmMessages");
-  let session = localStorage.getItem("eclipseFiresideSession") || "";
+  const safeStore = {
+    get(k){ try { return localStorage.getItem(k) || ""; } catch { return ""; } },
+    set(k,v){ try { localStorage.setItem(k, v); } catch {} },
+    remove(k){ try { localStorage.removeItem(k); } catch {} }
+  };
+  let session = safeStore.get("eclipseFiresideSession");
   let me = null, socket = null, reconnectTimer = null, reconnectAttempt = 0, fallbackTimer = null, manualClose = false;
   let contacts = [], requests = { incoming: [], outgoing: [] }, activeDm = null, locallyHidden = new Set();
   const pending = new Map();
@@ -63,16 +69,63 @@ window.ECLIPSE_FIRESIDE_CONFIG = Object.freeze({
 
   function apiBase() { return String(cfg.API_BASE || "").replace(/\/+$/, ""); }
   let turnstileWidgetId = null, turnstileToken = "";
-  function initTurnstile(){
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  async function ensureTurnstile(forceReload=false){
+    if(window.turnstile && !forceReload) return true;
+    for(let i=0;i<8 && !forceReload;i++){
+      if(window.turnstile) return true;
+      await sleep(180);
+    }
+    return await new Promise((resolve)=>{
+      try{
+        const old=document.getElementById("cf-turnstile-api");
+        if(old) old.remove();
+        const s=document.createElement("script");
+        s.id="cf-turnstile-api";
+        s.src=`https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&r=${Date.now()}`;
+        s.async=true; s.defer=true;
+        const timer=setTimeout(()=>resolve(Boolean(window.turnstile)),7000);
+        s.onload=()=>{clearTimeout(timer);resolve(Boolean(window.turnstile));};
+        s.onerror=()=>{clearTimeout(timer);resolve(false);};
+        document.head.appendChild(s);
+      }catch{ resolve(false); }
+    });
+  }
+
+  async function initTurnstile(forceReload=false){
     const sitekey=String(cfg.TURNSTILE_SITE_KEY||"").trim();
     const slot=el("turnstileSlot");
-    if(!slot||!sitekey||/REPLACE-WITH-TURNSTILE/i.test(sitekey))return;
-    const tryRender=()=>{
-      if(!window.turnstile){setTimeout(tryRender,120);return;}
-      if(turnstileWidgetId!==null)return;
-      turnstileWidgetId=window.turnstile.render(slot,{sitekey,theme:"dark",callback:(t)=>{turnstileToken=t||"";},"expired-callback":()=>{turnstileToken="";},"error-callback":()=>{turnstileToken="";}});
-    };
-    tryRender();
+    if(!slot||!sitekey||/REPLACE-WITH-TURNSTILE/i.test(sitekey)){
+      notice(authNotice,"Fireside verification is not configured.",true);
+      return false;
+    }
+    if(turnstileWidgetId!==null && !forceReload) return true;
+    if(forceReload){
+      turnstileToken="";
+      try{ if(window.turnstile && turnstileWidgetId!==null) window.turnstile.remove(turnstileWidgetId); }catch{}
+      turnstileWidgetId=null;
+      slot.textContent="";
+    }
+    const ready=await ensureTurnstile(forceReload && !window.turnstile);
+    if(!ready){
+      notice(authNotice,"Human verification could not load. Tap Repair Connection to retry the approved pathway.",true);
+      setStatus("Verification retry","wait");
+      return false;
+    }
+    try{
+      turnstileWidgetId=window.turnstile.render(slot,{
+        sitekey,
+        theme:"dark",
+        callback:(t)=>{turnstileToken=t||"";notice(authNotice,"");setStatus("Protected entry","wait");},
+        "expired-callback":()=>{turnstileToken="";},
+        "error-callback":()=>{turnstileToken="";notice(authNotice,"Verification hit a network block. Tap Repair Connection.",true);}
+      });
+      return true;
+    }catch{
+      notice(authNotice,"Verification could not start. Tap Repair Connection.",true);
+      return false;
+    }
   }
   function resetTurnstile(){turnstileToken="";try{if(window.turnstile&&turnstileWidgetId!==null)window.turnstile.reset(turnstileWidgetId);}catch{}}
   function configured() { return /^https:\/\//i.test(apiBase()) && !/REPLACE-WITH-YOUR-WORKER/i.test(apiBase()); }
@@ -107,14 +160,14 @@ window.ECLIPSE_FIRESIDE_CONFIG = Object.freeze({
 
   function showAuth() { authPanel.hidden = false; appPanel.hidden = true; setStatus(configured() ? "Protected entry" : "Setup needed", configured() ? "wait" : "bad"); }
   function showApp() { authPanel.hidden = true; appPanel.hidden = false; el("memberLine").textContent = ""; const b=document.createElement("b"); b.textContent = me?.display_name || "Member"; el("memberLine").append("Signed in as ", b, me?.handle ? ` · @${me.handle}` : ""); }
-  function expireSession() { try { speechRecognition?.abort?.(); } catch {} stopRecording(); session = ""; me = null; localStorage.removeItem("eclipseFiresideSession"); manualClose = true; try { socket?.close(); } catch {} stopFallback(); showAuth(); }
+  function expireSession() { try { speechRecognition?.abort?.(); } catch {} stopRecording(); session = ""; me = null; safeStore.remove("eclipseFiresideSession"); manualClose = true; try { socket?.close(); } catch {} stopFallback(); showAuth(); }
 
   async function register() {
     notice(authNotice, "Entering…");
     try {
       if(!turnstileToken) throw new Error("Complete the Fireside safety check first.");
       const data = await request("/register", { method: "POST", body: JSON.stringify({ display_name: el("displayName").value, handle: el("handle").value, turnstile_token: turnstileToken }) });
-      session = data.session; me = data.user; localStorage.setItem("eclipseFiresideSession", session); resetTurnstile();
+      session = data.session; me = data.user; safeStore.set("eclipseFiresideSession", session); resetTurnstile();
       showApp(); await sync(); connectSocket();
     } catch (e) { resetTurnstile(); notice(authNotice, e.message, true); }
   }
@@ -187,13 +240,13 @@ window.ECLIPSE_FIRESIDE_CONFIG = Object.freeze({
   function handleAck(d){const p=pending.get(String(d.client_id||d.ack||""));if(!p)return;if(d.ok){pending.delete(p.id);if(p.scope==="world"&&el("worldBox").dataset.pending===p.id){el("worldBox").value="";delete el("worldBox").dataset.pending;updateCounts();}if(p.scope==="dm"&&el("dmBox").dataset.pending===p.id){el("dmBox").value="";delete el("dmBox").dataset.pending;updateCounts();}}else{notice(p.scope==="world"?worldNotice:dmNotice,d.error||"Message was not accepted.",true);}setSendBusy(p.scope,false);}
   function setSendBusy(scope,busy){const b=scope==="world"?el("sendWorld"):el("sendDm");b.disabled=busy||(scope==="dm"&&!activeDm);b.textContent=busy?"Sending…":(scope==="world"?"Send":"Send DM");}
 
-  async function sendMessage(scope){const box=scope==="world"?el("worldBox"):el("dmBox");const text=box.value.normalize("NFKC").trim();if(!text)return;if(text.length>280){notice(scope==="world"?worldNotice:dmNotice,"Keep messages to 280 characters or less.",true);return;}if(scope==="dm"&&!activeDm)return;const id=clientId();const payload={type:"message",scope,text,client_id:id};if(scope==="dm")payload.to_user_id=activeDm.id;pending.set(id,{id,scope,payload});box.dataset.pending=id;localStorage.setItem(`eclipseFiresideDraft:${scope}`,box.value);setSendBusy(scope,true);
+  async function sendMessage(scope){const box=scope==="world"?el("worldBox"):el("dmBox");const text=box.value.normalize("NFKC").trim();if(!text)return;if(text.length>280){notice(scope==="world"?worldNotice:dmNotice,"Keep messages to 280 characters or less.",true);return;}if(scope==="dm"&&!activeDm)return;const id=clientId();const payload={type:"message",scope,text,client_id:id};if(scope==="dm")payload.to_user_id=activeDm.id;pending.set(id,{id,scope,payload});box.dataset.pending=id;safeStore.set(`eclipseFiresideDraft:${scope}`,box.value);setSendBusy(scope,true);
     if(socket&&socket.readyState===WebSocket.OPEN){try{socket.send(JSON.stringify(payload));setTimeout(()=>{if(pending.has(id))sendHttpFallback(id);},3500);return;}catch{}}
     await sendHttpFallback(id);
   }
   async function sendHttpFallback(id){const p=pending.get(id);if(!p)return;try{const data=await request("/api/message",{method:"POST",body:JSON.stringify(p.payload)});handleAck({...data,type:"ack",client_id:id,ok:true});if(p.scope==="world"&&data.message)renderWorldMessage(data.message);if(p.scope==="dm"&&data.message)renderDmMessage(data.message);}catch(e){notice(p.scope==="world"?worldNotice:dmNotice,e.message,true);setSendBusy(p.scope,false);startFallback();}}
 
-  async function repairConnection(){repairBtn.disabled=true;repairBtn.textContent="Repairing…";const worldDraft=el("worldBox").value,dmDraft=el("dmBox").value;try{setStatus("Checking…","wait");const health=await fetch(`${apiBase()}/health`,{cache:"no-store"}).then(r=>r.json());if(!health.ok)throw new Error("Fireside service is not ready.");manualClose=true;try{socket?.close();}catch{}clearTimeout(reconnectTimer);stopFallback();if(session){await sync(true);if(activeDm)await loadDm(true);connectSocket();}else showAuth();el("worldBox").value=worldDraft;el("dmBox").value=dmDraft;updateCounts();setStatus("Repaired","good");}catch(e){setStatus("Repair failed","bad");notice(session?worldNotice:authNotice,e.message,true);startFallback();}finally{repairBtn.disabled=false;repairBtn.textContent="Repair Connection";}}
+  async function repairConnection(){repairBtn.disabled=true;repairBtn.textContent="Repairing…";const worldDraft=el("worldBox").value,dmDraft=el("dmBox").value;try{setStatus("Checking…","wait");const health=await fetch(`${apiBase()}/health`,{cache:"no-store"}).then(r=>r.json());if(!health.ok)throw new Error("Fireside service is not ready.");manualClose=true;try{socket?.close();}catch{}clearTimeout(reconnectTimer);stopFallback();if(session){await sync(true);if(activeDm)await loadDm(true);connectSocket();}else{showAuth();await initTurnstile(true);}el("worldBox").value=worldDraft;el("dmBox").value=dmDraft;updateCounts();setStatus("Repaired","good");}catch(e){setStatus("Repair failed","bad");notice(session?worldNotice:authNotice,e.message,true);startFallback();}finally{repairBtn.disabled=false;repairBtn.textContent="Repair Connection";}}
 
   function xionLangTag(code) {
     return ({en:"en-US",es:"es-ES",fr:"fr-FR",ar:"ar-SA",ht:"ht-HT",pt:"pt-BR",de:"de-DE",it:"it-IT",zh:"zh-CN",ja:"ja-JP",ko:"ko-KR",hi:"hi-IN",tr:"tr-TR",ru:"ru-RU"})[code] || "en-US";
@@ -322,7 +375,7 @@ window.ECLIPSE_FIRESIDE_CONFIG = Object.freeze({
   }
 
   function switchTab(tab){document.querySelectorAll(".tab").forEach((b)=>b.setAttribute("aria-selected",String(b.dataset.tab===tab)));["world","contacts","dm","xion"].forEach((t)=>el(`${t}Pane`).hidden=t!==tab);if(tab==="dm"&&activeDm)loadDm(false);}
-  function updateCounts(){el("worldCount").textContent=`${el("worldBox").value.length}/280`;el("dmCount").textContent=`${el("dmBox").value.length}/280`;localStorage.setItem("eclipseFiresideDraft:world",el("worldBox").value);localStorage.setItem("eclipseFiresideDraft:dm",el("dmBox").value);}
+  function updateCounts(){el("worldCount").textContent=`${el("worldBox").value.length}/280`;el("dmCount").textContent=`${el("dmBox").value.length}/280`;safeStore.set("eclipseFiresideDraft:world",el("worldBox").value);safeStore.set("eclipseFiresideDraft:dm",el("dmBox").value);}
 
   el("registerBtn").addEventListener("click",register);el("addContactBtn").addEventListener("click",()=>sendContactRequest());el("contactHandle").addEventListener("keydown",e=>{if(e.key==="Enter")sendContactRequest();});el("sendWorld").addEventListener("click",()=>sendMessage("world"));el("sendDm").addEventListener("click",()=>sendMessage("dm"));
   el("xionMic").addEventListener("click",toggleXionMic);el("xionTranslate").addEventListener("click",translateXionText);el("xionRead").addEventListener("click",readXionTranslation);el("xionWorld").addEventListener("click",()=>useXion("world"));el("xionDm").addEventListener("click",()=>useXion("dm"));el("xionSwap").addEventListener("click",()=>{const a=el("xionSource").value,b=el("xionTarget").value;el("xionSource").value=b;el("xionTarget").value=a;const o=el("xionOriginal").value,t=el("xionTranslated").value;if(t){el("xionOriginal").value=t;el("xionTranslated").value=o;}});
@@ -330,9 +383,19 @@ window.ECLIPSE_FIRESIDE_CONFIG = Object.freeze({
   el("logoutBtn").addEventListener("click",async()=>{try{await request("/api/logout",{method:"POST"});}catch{}expireSession();});
   window.addEventListener("online",()=>{if(session)repairConnection();});window.addEventListener("pageshow",e=>{if(session&&(e.persisted||!socket||socket.readyState!==WebSocket.OPEN))repairConnection();});document.addEventListener("visibilitychange",()=>{if(!document.hidden&&session&&(!socket||socket.readyState!==WebSocket.OPEN))repairConnection();});window.addEventListener("beforeunload",()=>{manualClose=true;try{speechRecognition?.abort?.();}catch{}if(mediaRecorder?.state==="recording")stopRecording();try{socket?.close();}catch{}});
 
-  el("worldBox").value=localStorage.getItem("eclipseFiresideDraft:world")||"";el("dmBox").value=localStorage.getItem("eclipseFiresideDraft:dm")||"";updateCounts();
-  if(!configured()){showAuth();notice(authNotice,"Paste the deployed Worker URL into fireside/config.js first.",true);}else if(session){setStatus("Restoring…","wait");sync(true).then(()=>{connectSocket();}).catch(()=>{if(session)startFallback();});}else showAuth();
-initTurnstile();
+  setStatus("Pathway assist…","wait");
+  try{
+    el("worldBox").value=safeStore.get("eclipseFiresideDraft:world");el("dmBox").value=safeStore.get("eclipseFiresideDraft:dm");updateCounts();
+    if(!configured()){showAuth();notice(authNotice,"Fireside backend is not configured.",true);}
+    else if(session){setStatus("Restoring…","wait");sync(true).then(()=>{connectSocket();}).catch(()=>{if(session)startFallback();});}
+    else showAuth();
+    void initTurnstile(false);
+  }catch(e){
+    showAuth();
+    setStatus("Pathway recovery","wait");
+    notice(authNotice,"Fireside hit a browser pathway block. Tap Repair Connection to retry safely.",true);
+    setTimeout(()=>{ void initTurnstile(true); },350);
+  }
 })();
 </script>
 </body></html>
