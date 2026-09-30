@@ -1,11 +1,11 @@
 <!doctype html>
-<!-- ECLIPSE STK FIRESIDE R10 STAY TALKING | R9 Key Push + call wake lock + mic recovery | isolated Cloudflare Worker -->
+<!-- ECLIPSE STK FIRESIDE R9 MICHAEL KEY PUSH | R8 calls + background Key Alerts for Home Screen web apps | isolated Cloudflare Worker -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#100805">
-<meta name="fireside-build" content="R10-STAY-TALKING">
+<meta name="fireside-build" content="R9-MICHAEL-KEY-PUSH">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Fireside Key">
@@ -94,9 +94,6 @@ window.ECLIPSE_FIRESIDE_CONFIG = Object.freeze({
   let localCallStream = null, rawCallStream = null, remoteCallStream = null, callMakingOffer = false;
   let xionCallContext = null, xionCallGain = null, xionCallAnalyser = null, xionClarityTimer = null;
   let callStatsTimer = null, callPoorSamples = 0, callIceRetry = 0, callIceRetryTimer = null, autoVideoParked = false, callProfile = "normal";
-  let callWakeLock = null, callWakeLockWanted = false;
-  let callMicNeedsRecovery = false, callMicRecovering = false, callMicWatchTimer = null, callWantedMuted = false;
-  let callAudioSessionPrevious = null;
 
   function apiBase() { return String(cfg.API_BASE || "").replace(/\/+$/, ""); }
   let turnstileWidgetId = null, turnstileToken = "";
@@ -345,55 +342,8 @@ window.ECLIPSE_FIRESIDE_CONFIG = Object.freeze({
   }
   function stopXionRelay(){clearInterval(xionClarityTimer);xionClarityTimer=null;xionCallGain=null;xionCallAnalyser=null;try{xionCallContext?.close?.();}catch{}xionCallContext=null;}
   function stopCallStats(){clearInterval(callStatsTimer);callStatsTimer=null;clearTimeout(callIceRetryTimer);callIceRetryTimer=null;callPoorSamples=0;callIceRetry=0;callProfile="normal";autoVideoParked=false;}
-  async function holdCallWakeLock(){
-    callWakeLockWanted=Boolean(activeCall);
-    if(!callWakeLockWanted||document.hidden||!("wakeLock" in navigator))return false;
-    try{
-      if(callWakeLock&&!callWakeLock.released)return true;
-      const lock=await navigator.wakeLock.request("screen");callWakeLock=lock;
-      lock.addEventListener("release",()=>{if(callWakeLock===lock)callWakeLock=null;if(callWakeLockWanted&&activeCall&&!document.hidden)setTimeout(()=>{void holdCallWakeLock();},250);},{once:true});
-      return true;
-    }catch{return false;}
-  }
-  function releaseCallWakeLock(){callWakeLockWanted=false;const lock=callWakeLock;callWakeLock=null;try{lock?.release?.();}catch{}}
-  function setCallAudioSession(active){
-    const a=navigator.audioSession;if(!a)return false;
-    try{
-      if(active){if(callAudioSessionPrevious===null)callAudioSessionPrevious=String(a.type||"auto");a.type="play-and-record";}
-      else{const prev=callAudioSessionPrevious;callAudioSessionPrevious=null;a.type=prev||"auto";}
-      return true;
-    }catch{return false;}
-  }
-  function stopCallMicWatch(){clearInterval(callMicWatchTimer);callMicWatchTimer=null;callMicNeedsRecovery=false;callMicRecovering=false;}
-  function markCallMicForRecovery(reason="iPhone paused microphone"){if(!activeCall)return;callMicNeedsRecovery=true;if(!document.hidden)setCallStatus(`${reason} · Xion will restore the mic`);}
-  function armCallMicWatch(){
-    stopCallMicWatch();const track=rawCallStream?.getAudioTracks?.()[0];if(!track)return;
-    track.addEventListener("ended",()=>markCallMicForRecovery("Microphone capture ended"),{once:true});
-    track.addEventListener("mute",()=>{setTimeout(()=>{if(activeCall&&track.muted)markCallMicForRecovery("iPhone paused microphone");},500);});
-    track.addEventListener("unmute",()=>{if(track.readyState==="live")callMicNeedsRecovery=false;});
-    callMicWatchTimer=setInterval(()=>{if(!activeCall||callMicRecovering)return;const t=rawCallStream?.getAudioTracks?.()[0];if(!t||t.readyState!=="live"||t.muted){callMicNeedsRecovery=true;if(!document.hidden)void recoverCallMicrophone("mic health check");}},2000);
-  }
-  async function recoverCallMicrophone(reason="return to Fireside"){
-    if(!activeCall||document.hidden||callMicRecovering)return false;
-    const oldRawAudio=rawCallStream?.getAudioTracks?.()[0]||null;
-    if(!callMicNeedsRecovery&&oldRawAudio&&oldRawAudio.readyState==="live"&&!oldRawAudio.muted)return true;
-    callMicRecovering=true;setCallStatus(`Restoring microphone · ${reason}`);
-    try{
-      const fresh=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true,channelCount:{ideal:1}},video:false});
-      const freshAudio=fresh.getAudioTracks()[0];if(!freshAudio)throw new Error("No microphone track returned");freshAudio.contentHint="speech";
-      const videoTracks=rawCallStream?.getVideoTracks?.()||[];const rebuiltRaw=new MediaStream([freshAudio,...videoTracks]);
-      const oldLocal=localCallStream;stopXionRelay();const rebuiltLocal=await buildXionRelay(rebuiltRaw);const outbound=rebuiltLocal.getAudioTracks()[0]||freshAudio;outbound.enabled=!callWantedMuted;outbound.contentHint="speech";
-      const sender=peerConnection?.getSenders?.().find((x)=>x.track?.kind==="audio");
-      if(sender)await sender.replaceTrack(outbound);else if(peerConnection){peerConnection.addTrack(outbound,rebuiltLocal);if(Number(activeCall?.caller_id)===Number(me?.id))await makeOffer(false);else await signalCall("restart_request",{reason:"microphone restored"});}
-      rawCallStream=rebuiltRaw;localCallStream=rebuiltLocal;el("localVideo").srcObject=rebuiltRaw;
-      try{oldRawAudio?.stop?.();}catch{}try{oldLocal?.getAudioTracks?.().forEach((t)=>{if(t!==outbound)t.stop();});}catch{}
-      callMicNeedsRecovery=false;armCallMicWatch();setCallStatus(callWantedMuted?"Microphone restored · still muted by you":"Microphone restored · call still connected");return true;
-    }catch(e){callMicNeedsRecovery=true;setCallStatus("Microphone paused by iPhone · call held open · return to Fireside and tap the call if needed");return false;}
-    finally{callMicRecovering=false;}
-  }
-  function resumeCallAudioPath(){if(!activeCall)return;void holdCallWakeLock();try{if(xionCallContext?.state==="suspended")void xionCallContext.resume();}catch{}for(const id of ["remoteVideo","remoteAudio"]){try{void el(id)?.play?.().catch(()=>{});}catch{}}if(callMicNeedsRecovery)void recoverCallMicrophone("Fireside became active");}
   function clearCallMedia(){
-    releaseCallWakeLock();setCallAudioSession(false);stopCallMicWatch();callWantedMuted=false;stopCallStats();stopXionRelay();try{localCallStream?.getTracks()?.forEach((t)=>t.stop());}catch{}try{rawCallStream?.getTracks()?.forEach((t)=>t.stop());}catch{}localCallStream=null;rawCallStream=null;remoteCallStream=null;
+    stopCallStats();stopXionRelay();try{localCallStream?.getTracks()?.forEach((t)=>t.stop());}catch{}try{rawCallStream?.getTracks()?.forEach((t)=>t.stop());}catch{}localCallStream=null;rawCallStream=null;remoteCallStream=null;
     try{peerConnection?.close();}catch{}peerConnection=null;el("remoteVideo").srcObject=null;el("remoteAudio").srcObject=null;el("localVideo").srcObject=null;el("callXionStatus").textContent="Xion Relay · standing by";
   }
   function finishCallUi(message="Call ended."){clearCallAlert();clearCallMedia();setCallStatus(message);setCallUi(activeCall?.mode||"audio","ended");activeCall=null;activeCallPeer=null;}
@@ -413,10 +363,10 @@ window.ECLIPSE_FIRESIDE_CONFIG = Object.freeze({
     }catch{stopXionRelay();el("callXionStatus").textContent="Xion Relay · native browser voice path active";return raw;}
   }
   async function acquireCallMedia(mode){
-    setCallAudioSession(true);const wantsVideo=mode==="video";let raw;const audio={echoCancellation:true,noiseSuppression:true,autoGainControl:true,channelCount:{ideal:1}};
+    const wantsVideo=mode==="video";let raw;const audio={echoCancellation:true,noiseSuppression:true,autoGainControl:true,channelCount:{ideal:1}};
     try{raw=await navigator.mediaDevices.getUserMedia({audio,video:wantsVideo?{facingMode:"user",width:{ideal:640,max:1280},height:{ideal:480,max:720},frameRate:{ideal:20,max:24}}:false});}
     catch(e){if(!wantsVideo)throw e;raw=await navigator.mediaDevices.getUserMedia({audio,video:false});setCallStatus("Camera unavailable · continuing as a voice call");el("callMedia").classList.add("audioOnly");}
-    rawCallStream=raw;localCallStream=await buildXionRelay(raw);const at=localCallStream.getAudioTracks?.()[0];if(at){at.enabled=!callWantedMuted;at.contentHint="speech";}el("localVideo").srcObject=raw;armCallMicWatch();void holdCallWakeLock();return localCallStream;
+    rawCallStream=raw;localCallStream=await buildXionRelay(raw);el("localVideo").srcObject=raw;return localCallStream;
   }
   async function setSenderProfile(profile="normal"){
     if(!peerConnection)return;callProfile=profile;const survival=profile==="survival";
@@ -457,7 +407,7 @@ window.ECLIPSE_FIRESIDE_CONFIG = Object.freeze({
   async function declineIncomingCall(){if(!activeCall)return;clearCallAlert();try{await callRequest("/api/call/respond",{method:"POST",body:JSON.stringify({call_id:activeCall.id,action:"decline"})},2);}catch{}finishCallUi("Call declined.");}
   async function hangupCall(){if(!activeCall){finishCallUi();return;}const id=activeCall.id;try{await callRequest("/api/call/end",{method:"POST",body:JSON.stringify({call_id:id})},2);}catch{}finishCallUi("Call ended.");}
   async function retryCallLink(){if(!activeCall)return;callIceRetry=0;setCallStatus("Retrying media link…");try{await recoverIce("manual retry");}catch(e){setCallStatus(`Retry waiting · ${e.message}`);}}
-  function toggleCallMute(){callWantedMuted=!callWantedMuted;const t=localCallStream?.getAudioTracks?.()[0];if(t)t.enabled=!callWantedMuted;el("muteCall").textContent=callWantedMuted?"🎙️ Unmute":"🎙️ Mute";}
+  function toggleCallMute(){const t=localCallStream?.getAudioTracks?.()[0];if(!t)return;t.enabled=!t.enabled;el("muteCall").textContent=t.enabled?"🎙️ Mute":"🎙️ Unmute";}
   function toggleCallCamera(){const t=rawCallStream?.getVideoTracks?.()[0];if(!t)return;t.enabled=!t.enabled;autoVideoParked=false;el("cameraCall").textContent=t.enabled?"📷 Camera off":"📷 Camera on";if(t.enabled)void setSenderProfile(callPoorSamples>=2?"survival":"normal");}
   async function handleCallEvent(event){
     if(!event||!event.id)return;callEventCursor=Math.max(callEventCursor,Number(event.id)||0);draftStore.set("eclipseFiresideCallCursor",String(callEventCursor));const p=event.payload||{};
@@ -626,18 +576,13 @@ window.ECLIPSE_FIRESIDE_CONFIG = Object.freeze({
   function updateCounts(){el("worldCount").textContent=`${el("worldBox").value.length}/280`;el("dmCount").textContent=`${el("dmBox").value.length}/280`;draftStore.set("eclipseFiresideDraft:world",el("worldBox").value);draftStore.set("eclipseFiresideDraft:dm",el("dmBox").value);}
 
   el("loginBtn").addEventListener("click",login);el("registerBtn").addEventListener("click",register);el("setPasswordBtn").addEventListener("click",setLegacyPassword);el("password").addEventListener("keydown",e=>{if(e.key==="Enter")login();});el("addContactBtn").addEventListener("click",()=>sendContactRequest());el("contactHandle").addEventListener("keydown",e=>{if(e.key==="Enter")sendContactRequest();});el("sendWorld").addEventListener("click",()=>sendMessage("world"));el("sendDm").addEventListener("click",()=>sendMessage("dm"));
-  el("callOverlay").addEventListener("click",()=>{setCallAudioSession(true);resumeCallAudioPath();if(callMicNeedsRecovery)void recoverCallMicrophone("tap recovery");});
+  el("callOverlay").addEventListener("click",()=>{for(const id of ["remoteVideo","remoteAudio"]){try{el(id).play?.().catch(()=>{});}catch{}}try{if(xionCallContext?.state==="suspended")xionCallContext.resume();}catch{}});
   el("enableCallAlerts").addEventListener("click",enableCallAlerts);
     el("acceptCall").addEventListener("click",acceptIncomingCall);el("declineCall").addEventListener("click",declineIncomingCall);el("hangupCall").addEventListener("click",hangupCall);el("retryCall").addEventListener("click",retryCallLink);el("muteCall").addEventListener("click",toggleCallMute);el("cameraCall").addEventListener("click",toggleCallCamera);el("callClose").addEventListener("click",()=>{el("callOverlay").hidden=true;});
     el("xionMic").addEventListener("click",toggleXionMic);el("xionTranslate").addEventListener("click",translateXionText);el("xionRead").addEventListener("click",readXionTranslation);el("xionWorld").addEventListener("click",()=>useXion("world"));el("xionDm").addEventListener("click",()=>useXion("dm"));el("xionSwap").addEventListener("click",()=>{const a=el("xionSource").value,b=el("xionTarget").value;el("xionSource").value=b;el("xionTarget").value=a;const o=el("xionOriginal").value,t=el("xionTranslated").value;if(t){el("xionOriginal").value=t;el("xionTranslated").value=o;}});
   for(const id of ["worldBox","dmBox"]){el(id).addEventListener("input",updateCounts);el(id).addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage(id==="worldBox"?"world":"dm");}});}document.querySelectorAll(".tab").forEach(b=>b.addEventListener("click",()=>switchTab(b.dataset.tab)));repairBtn.addEventListener("click",repairConnection);
   el("logoutBtn").addEventListener("click",async()=>{if(me?.has_password===false){el("legacyPasswordPanel").hidden=false;notice(el("passwordNotice"),"Set a password before logging out so you do not lock yourself out of this existing account.",true);el("legacyPassword").focus();return;}await unbindKeyPush();try{await request("/api/logout",{method:"POST"});}catch{}expireSession();});
-  window.addEventListener("online",()=>{if(session){repairConnection();if(activeCall){callIceRetry=0;setCallAudioSession(true);resumeCallAudioPath();void recoverIce("network restored");void recoverCallMicrophone("network restored");}}});
-  window.addEventListener("pageshow",e=>{if(session&&(e.persisted||!socket||socket.readyState!==WebSocket.OPEN))repairConnection();if(activeCall){setCallAudioSession(true);resumeCallAudioPath();void recoverCallMicrophone("page resumed");}});
-  window.addEventListener("focus",()=>{if(activeCall){setCallAudioSession(true);resumeCallAudioPath();void recoverCallMicrophone("window focused");}});
-  document.addEventListener("visibilitychange",()=>{if(!document.hidden){if(session&&(!socket||socket.readyState!==WebSocket.OPEN))repairConnection();if(activeCall){setCallAudioSession(true);resumeCallAudioPath();void recoverCallMicrophone("returned from background");}}else if(activeCall){callMicNeedsRecovery=true;setCallStatus("Call held · iPhone may pause the mic while Fireside is backgrounded");}});
-  try{navigator.mediaDevices?.addEventListener?.("devicechange",()=>{if(activeCall&&!document.hidden){callMicNeedsRecovery=true;void recoverCallMicrophone("audio device changed");}});}catch{}
-  window.addEventListener("beforeunload",()=>{manualClose=true;try{speechRecognition?.abort?.();}catch{}if(mediaRecorder?.state==="recording")stopRecording();try{socket?.close();}catch{}clearCallMedia();});
+  window.addEventListener("online",()=>{if(session){repairConnection();if(activeCall){callIceRetry=0;void recoverIce("network restored");}}});window.addEventListener("pageshow",e=>{if(session&&(e.persisted||!socket||socket.readyState!==WebSocket.OPEN))repairConnection();});document.addEventListener("visibilitychange",()=>{if(!document.hidden&&session&&(!socket||socket.readyState!==WebSocket.OPEN))repairConnection();});window.addEventListener("beforeunload",()=>{manualClose=true;try{speechRecognition?.abort?.();}catch{}if(mediaRecorder?.state==="recording")stopRecording();try{socket?.close();}catch{}clearCallMedia();});
 
   updateAlertMode();
   setStatus("Verifying Michael…","wait");
