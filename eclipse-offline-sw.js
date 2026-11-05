@@ -1,17 +1,21 @@
-/* ECLIPSE STK R70: explicit public-shell storage and saved-original playback.
+/* ECLIPSE STK R73: explicit public shell, originals, and saved listening copies.
  * Deploy beside index.html as JavaScript over HTTPS. This worker never fetches
  * music, models, private data, arbitrary message URLs, or background updates.
  * The page owns consent, original verification, saving, and archive removal.
  */
 'use strict';
 
-const WORKER_BUILD = 'eclipse-stk-offline-r70-v1';
+const WORKER_BUILD = 'eclipse-stk-offline-r73-v1';
+const LEGACY_WORKER_BUILD = 'eclipse-stk-offline-r70-v1';
+const CAPABILITIES = Object.freeze(['originals-v1', 'listening-v1']);
 const PROTOCOL_VERSION = 1;
 const ORIGINALS_CACHE = 'eclipse-stk-originals-v1';
+const LISTENING_CACHE = 'eclipse-stk-listening-v1';
 const SHELL_CACHE = 'eclipse-stk-shell-v1';
 const BASE_URL = new URL('./', self.location.href);
 const SHELL_URL = new URL('index.html', BASE_URL).href;
 const AUDIO_PREFIX = new URL('__eclipse_offline_audio__/', BASE_URL).pathname;
+const LISTENING_PREFIX = new URL('__eclipse_offline_listening__/', BASE_URL).pathname;
 const MAX_ORIGINAL_BYTES = 256 * 1024 * 1024;
 const MAX_SHELL_BYTES = 24 * 1024 * 1024;
 const SHELL_PREFIX_BYTES = 16 * 1024;
@@ -68,10 +72,10 @@ function emptyResponse(status, extraHeaders) {
   });
 }
 
-function archiveKey(url) {
+function archiveKey(url, prefix = AUDIO_PREFIX) {
   if (url.origin !== BASE_URL.origin || url.username || url.password || url.search || url.hash ||
-      !url.pathname.startsWith(AUDIO_PREFIX)) return null;
-  const encoded = url.pathname.slice(AUDIO_PREFIX.length);
+      !url.pathname.startsWith(prefix)) return null;
+  const encoded = url.pathname.slice(prefix.length);
   let key;
   try { key = decodeURIComponent(encoded); } catch (_) { return null; }
   // Decode once only. The canonical key is never an instruction to fetch a URL.
@@ -79,7 +83,7 @@ function archiveKey(url) {
       /[<>?#\u0000-\u001f\u007f\\]/.test(key) || !/\.wav$/i.test(key) ||
       key.split('/').some(part => !part || part === '.' || part === '..') ||
       encodeURIComponent(key) !== encoded) return null;
-  return { key, encoded, url: new URL(AUDIO_PREFIX + encoded, BASE_URL.origin).href };
+  return { key, encoded, url: new URL(prefix + encoded, BASE_URL.origin).href };
 }
 
 function originalInfo(response, key) {
@@ -90,6 +94,23 @@ function originalInfo(response, key) {
   if (!bytes || response.headers.get('Content-Length') !== String(bytes) ||
       response.headers.get('X-Eclipse-Original-Key') !== key.encoded ||
       !['audio/wav', 'audio/wave', 'audio/x-wav'].includes(contentType)) return null;
+  return { bytes };
+}
+
+function listeningInfo(response, key) {
+  if (!response || response.status !== 200 || ['opaque', 'opaqueredirect', 'error'].includes(response.type) ||
+      response.redirected || response.headers.has('Content-Range') || response.headers.has('Content-Encoding')) return null;
+  const h = response.headers, bytes = positiveSize(h.get('X-Eclipse-Listening-Bytes'), MAX_ORIGINAL_BYTES);
+  const companion = archiveKey(new URL(AUDIO_PREFIX + (h.get('X-Eclipse-Companion-Key') || ''), BASE_URL.origin));
+  if (!bytes || bytes < 44 || h.get('Content-Length') !== String(bytes) ||
+      h.get('X-Eclipse-Listening-Version') !== '1' || h.get('X-Eclipse-Listening-Kind') !== 'published-listening-copy' ||
+      h.get('X-Eclipse-Original-Key') !== key.encoded || !companion || companion.key === key.key ||
+      !/(?:^|[_\/ -])(?:BrowserSafe|SafariSafe)(?:[_ .-]|$)/i.test(companion.key) ||
+      h.get('Content-Type')?.split(';')[0].trim().toLowerCase() !== 'audio/wav' ||
+      !['16', '24'].includes(h.get('X-Eclipse-Bits')) || !['44100', '48000'].includes(h.get('X-Eclipse-Sample-Rate')) ||
+      !['1', '2'].includes(h.get('X-Eclipse-Channels')) || h.get('X-Eclipse-Float') !== 'false' ||
+      !/^save-[\w.-]{1,100}$/.test(h.get('X-Eclipse-Commit') || '') ||
+      !Number.isFinite(Date.parse(h.get('X-Eclipse-Saved-At') || ''))) return null;
   return { bytes };
 }
 
@@ -145,6 +166,15 @@ function originalHeaders(response, info) {
   return headers;
 }
 
+function listeningHeaders(response, info) {
+  const headers = originalHeaders(response, info);
+  headers.delete('X-Eclipse-Original-Bytes');
+  for (const name of ['Listening-Version', 'Listening-Kind', 'Listening-Bytes', 'Companion-Key']) {
+    headers.set('X-Eclipse-' + name, response.headers.get('X-Eclipse-' + name));
+  }
+  return headers;
+}
+
 function rangeStream(body, first, last) {
   const reader = body.getReader();
   let offset = 0;
@@ -162,12 +192,12 @@ function rangeStream(body, first, last) {
         while (!complete) {
           const result = await reader.read();
           if (complete) return;
-          if (result.done) throw error('archive_truncated', 'The saved original ended before the requested bytes.');
+          if (result.done) throw error('archive_truncated', 'The saved audio ended before the requested bytes.');
           const chunk = result.value;
-          if (!(chunk instanceof Uint8Array)) throw error('archive_stream', 'The saved original has an invalid byte stream.');
+          if (!(chunk instanceof Uint8Array)) throw error('archive_stream', 'The saved audio has an invalid byte stream.');
           const chunkStart = offset;
           offset += chunk.byteLength;
-          if (!Number.isSafeInteger(offset)) throw error('archive_stream', 'The saved original length is invalid.');
+          if (!Number.isSafeInteger(offset)) throw error('archive_stream', 'The saved audio length is invalid.');
           if (offset <= first) continue;
           const start = Math.max(0, first - chunkStart);
           const end = Math.min(chunk.byteLength, last + 1 - chunkStart);
@@ -187,20 +217,20 @@ function rangeStream(body, first, last) {
   }, { highWaterMark: 0 });
 }
 
-async function serveOriginal(event, url) {
+async function serveOriginal(event, url, listening = false) {
   const request = event.request;
-  const key = archiveKey(url);
+  const key = archiveKey(url, listening ? LISTENING_PREFIX : AUDIO_PREFIX);
   if (!key || request.mode === 'navigate' || !(await publicClient(event.clientId))) return emptyResponse(404);
   if (!['GET', 'HEAD'].includes(request.method)) return emptyResponse(405, { Allow: 'GET, HEAD' });
   let cached;
-  try { cached = await caches.match(key.url, { cacheName: ORIGINALS_CACHE }); }
+  try { cached = await caches.match(key.url, { cacheName: listening ? LISTENING_CACHE : ORIGINALS_CACHE }); }
   catch (_) { return emptyResponse(503); }
-  const info = originalInfo(cached, key);
+  const info = listening ? listeningInfo(cached, key) : originalInfo(cached, key);
   if (!info || !cached.body) {
     cancelBody(cached, 'Invalid archive entry');
     return emptyResponse(404);
   }
-  const headers = originalHeaders(cached, info);
+  const headers = listening ? listeningHeaders(cached, info) : originalHeaders(cached, info);
   // Range is defined for GET only. Without a strong If-Range validator, return
   // the complete representation rather than combine possibly different bytes.
   const range = request.method === 'GET' && !request.headers.has('If-Range') ?
@@ -223,7 +253,9 @@ async function serveOriginal(event, url) {
 }
 
 function shellInfo(response) {
-  if (!response || response.status !== 200 || response.headers.get('X-Eclipse-Shell-Worker') !== WORKER_BUILD ||
+  // Keep a previously validated public snapshot usable until the new one is
+  // committed. Upgrading this worker never deletes the old page or music.
+  if (!response || response.status !== 200 || ![WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
       response.headers.get('X-Eclipse-Shell-URL') !== SHELL_URL ||
       (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase() !== 'text/html') return null;
   const bytes = positiveSize(response.headers.get('Content-Length'), MAX_SHELL_BYTES);
@@ -445,11 +477,11 @@ async function handleMessage(event) {
       result = await shellStatus();
     } else result = await shellStatus();
     port.postMessage(Object.assign({ type: 'ECLIPSE_OFFLINE_RESULT', version: PROTOCOL_VERSION,
-      id: data.id, ok: true, workerBuild: WORKER_BUILD }, result));
+      id: data.id, ok: true, workerBuild: WORKER_BUILD, capabilities: CAPABILITIES }, result));
   } catch (failure) {
     const status = await shellStatus();
     port.postMessage(Object.assign({ type: 'ECLIPSE_OFFLINE_RESULT', version: PROTOCOL_VERSION,
-      id: data.id, ok: false, workerBuild: WORKER_BUILD,
+      id: data.id, ok: false, workerBuild: WORKER_BUILD, capabilities: CAPABILITIES,
       error: { code: failure.code || 'offline_error', message: failure.message || 'The offline action could not finish.' }
     }, status));
   }
@@ -461,7 +493,9 @@ self.addEventListener('message', event => { event.waitUntil(handleMessage(event)
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (url.origin !== BASE_URL.origin) return;
-  if (url.pathname.startsWith(AUDIO_PREFIX)) {
+  if (url.pathname.startsWith(LISTENING_PREFIX)) {
+    event.respondWith(serveOriginal(event, url, true));
+  } else if (url.pathname.startsWith(AUDIO_PREFIX)) {
     event.respondWith(serveOriginal(event, url));
   } else if (event.request.method === 'GET' && event.request.mode === 'navigate' &&
              publicPath(url) && !url.search && !url.hash) {
