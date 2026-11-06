@@ -1,13 +1,14 @@
-/* ECLIPSE STK R76: retained archives, original bytes, and validated local playback.
+/* ECLIPSE STK R77: retained archives, original bytes, and validated local playback.
  * Deploy beside index.html as JavaScript over HTTPS. This worker never fetches
  * music, models, private data, arbitrary message URLs, or background updates.
  * The page owns consent, original verification, saving, and archive removal.
  */
 'use strict';
 
-const WORKER_BUILD = 'eclipse-stk-offline-r76-v1';
-const PRIOR_WORKER_BUILD = 'eclipse-stk-offline-r75-v1';
-const RETAINED_WORKER_BUILD = 'eclipse-stk-offline-r74-v1';
+const WORKER_BUILD = 'eclipse-stk-offline-r77-v1';
+const PRIOR_WORKER_BUILD = 'eclipse-stk-offline-r76-v1';
+const RETAINED_WORKER_BUILD = 'eclipse-stk-offline-r75-v1';
+const R74_WORKER_BUILD = 'eclipse-stk-offline-r74-v1';
 const R73_WORKER_BUILD = 'eclipse-stk-offline-r73-v1';
 const LEGACY_WORKER_BUILD = 'eclipse-stk-offline-r70-v1';
 const CAPABILITIES = Object.freeze(['originals-v1', 'listening-v1']);
@@ -27,6 +28,8 @@ const NAVIGATION_TIMEOUT_MS = 8000;
 const CACHE_READ_TIMEOUT_MS = 8000;
 const PROTECTED_BASELINE = 'eclipse-stk-2026-09-23-r50-xion-michael-q5-motherbrain2-fightchat-xion4lock-friendmother-fidelity1-michael-trusted-survivor1-final';
 let shellTask = null;
+let shellStatusTask = null;
+const pendingMessageClients = new Map();
 let shellAbort = null;
 let shellEpoch = 0;
 let shellClearing = null;
@@ -321,7 +324,7 @@ async function serveOriginal(event, url, listening = false) {
 function shellInfo(response) {
   // Keep a previously validated public snapshot usable until the new one is
   // committed. Upgrading this worker never deletes the old page or music.
-  if (!response || response.status !== 200 || ![WORKER_BUILD, PRIOR_WORKER_BUILD, RETAINED_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
+  if (!response || response.status !== 200 || ![WORKER_BUILD, PRIOR_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
       response.headers.get('X-Eclipse-Shell-URL') !== SHELL_URL ||
       (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase() !== 'text/html') return null;
   const bytes = positiveSize(response.headers.get('Content-Length'), MAX_SHELL_BYTES);
@@ -342,11 +345,50 @@ async function savedShell() {
   return null;
 }
 
+function controlFailure(code, message, stage, cause) {
+  const value = error(code, message);
+  value.stage = stage;
+  if (cause) {
+    value.nativeName = String(cause.name || 'Error').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+    value.nativeCode = String(cause.code || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+    value.nativeMessage = String(cause.message || '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/(?:https?|blob):\S+/gi, '[storage URL]').slice(0, 240);
+  }
+  return value;
+}
+
+function controlDeadline(task, milliseconds, timeout) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(timeout()), milliseconds);
+    Promise.resolve(task).then(value => { clearTimeout(timer); resolve(value); }, failure => { clearTimeout(timer); reject(failure); });
+  });
+}
+
+function shellStatusPending() {
+  return controlFailure('shell_status_pending', 'The browser is still checking the saved page. Its stored files were kept; retry setup after the check finishes.', 'worker-shell-status');
+}
+
 async function shellStatus() {
-  const saved = await savedShell();
-  if (!saved) return { shellReady: false };
-  await cancelBody(saved.response, 'Status needs no body');
-  return saved.info;
+  let record = shellStatusTask;
+  if (record && record.timedOut) throw shellStatusPending();
+  if (!record) {
+    record = { task: null, timedOut: false };
+    shellStatusTask = record;
+    record.task = (async () => {
+      let response;
+      try {
+        response = await cachedResponse(SHELL_URL, SHELL_CACHE);
+        return shellInfo(response) || { shellReady: false };
+      } catch (failure) {
+        throw controlFailure(failure.code === 'STORAGE_BUSY' || failure.code === 'STORAGE_TIMEOUT' ? 'shell_status_pending' : 'shell_status_failed', 'The browser could not finish checking the saved page. Existing saved files were kept; retry setup.', 'worker-shell-status', failure);
+      } finally {
+        // Keep this status slot until native body cleanup really settles. A
+        // caller deadline must not create a series of abandoned shell bodies.
+        try { if (response?.body && !response.body.locked) await response.body.cancel('Status needs no body'); } catch (_) {}
+      }
+    })();
+    record.task.finally(() => { if (shellStatusTask === record) shellStatusTask = null; }).catch(() => {});
+  }
+  return controlDeadline(record.task, 11000, () => { record.timedOut = true; return shellStatusPending(); });
 }
 
 function metaValue(prefix, name, httpEquiv) {
@@ -523,36 +565,85 @@ async function networkFirstShell(request) {
   } finally { clearTimeout(timer); }
 }
 
+const LEGACY_MESSAGE_PROFILES = Object.freeze({
+  'eclipse-stk-2026-11-06-r76-archive-save-recovery': 'eclipse-stk-offline-r76-v1',
+  'eclipse-stk-2026-11-06-r75-archive-index-repair': 'eclipse-stk-offline-r75-v1',
+  'eclipse-stk-2026-11-06-r74-archive-recovery-guide': 'eclipse-stk-offline-r74-v1',
+  'eclipse-stk-2026-11-05-r73-offline-listening-resume': 'eclipse-stk-offline-r73-v1',
+  'eclipse-stk-2026-11-05-r70-offline-originals': 'eclipse-stk-offline-r70-v1'
+});
+
+function messageIdentity(data) {
+  const profile = data.action !== 'hello' && Object.hasOwn(LEGACY_MESSAGE_PROFILES, data.appBuild) ? LEGACY_MESSAGE_PROFILES[data.appBuild] : '';
+  return Object.assign({ workerBuild: profile || WORKER_BUILD, actualWorkerBuild: WORKER_BUILD }, profile ? { compatibilityFor: data.appBuild } : {});
+}
+
+function messageFailure(failure, action) {
+  const value = { code: String(failure.code || 'offline_error').slice(0, 80), message: String(failure.message || 'The offline action could not finish.').slice(0, 500), stage: failure.stage || (action === 'status' ? 'worker-shell-status' : action === 'activateUpdate' ? 'worker-activation' : 'worker-shell-save') };
+  for (const name of ['nativeName', 'nativeCode', 'nativeMessage', 'writeState']) if (typeof failure[name] === 'string') value[name] = failure[name];
+  return value;
+}
+
+async function validatedMessageClient(id) {
+  if (typeof id !== 'string' || !id) return null;
+  let record = pendingMessageClients.get(id);
+  if (!record) {
+    record = { task: Promise.resolve().then(() => publicClient(id)) };
+    pendingMessageClients.set(id, record);
+    record.task.finally(() => { if (pendingMessageClients.get(id) === record) pendingMessageClients.delete(id); }).catch(() => {});
+  }
+  // Fail closed without inventing an authorized client. Keep one native lookup
+  // registered while it is pending, but do not pin activation on that lookup.
+  try { return await controlDeadline(record.task, 2500, () => controlFailure('worker_client_pending', 'The browser has not confirmed the requesting page.', 'worker-client')); }
+  catch (_) { return null; }
+}
+
 async function handleMessage(event) {
+  const startedAt = Date.now();
   const port = event.ports && event.ports[0];
   const data = event.data;
   if (!port || !data || typeof data !== 'object' || data.type !== 'ECLIPSE_OFFLINE' ||
       data.version !== PROTOCOL_VERSION || typeof data.id !== 'string' || !/^[\w.-]{1,80}$/.test(data.id) ||
-      !['ensureShell', 'status', 'clearShell', 'activateUpdate'].includes(data.action) ||
+      !['hello', 'ensureShell', 'status', 'clearShell', 'activateUpdate'].includes(data.action) ||
       (event.origin && event.origin !== BASE_URL.origin) ||
-      !(await publicClient(event.source && event.source.id))) return;
+      !(await validatedMessageClient(event.source && event.source.id))) return;
+  const identity = messageIdentity(data);
+  const reply = (ok, result) => port.postMessage(Object.assign({ type: 'ECLIPSE_OFFLINE_RESULT', version: PROTOCOL_VERSION,
+    id: data.id, action: data.action, ok, capabilities: CAPABILITIES }, identity, result));
   let result;
   try {
-    if (data.action === 'ensureShell') {
+    if (data.action === 'hello') result = {};
+    else if (data.action === 'ensureShell') {
       if (data.appBuild !== undefined && (typeof data.appBuild !== 'string' || !/^eclipse-stk-[A-Za-z0-9-]{1,180}$/.test(data.appBuild))) {
         throw error('invalid_build', 'An ECLIPSE STK release identifier is required.');
       }
-      result = await ensureShell(data.appBuild || '', data.refresh === true);
+      const task = ensureShell(data.appBuild || '', data.refresh === true);
+      // The RPC may report an unconfirmed result before an uncancellable native
+      // write settles. Its actual task remains owned, with no duplicate save.
+      event.waitUntil(task.catch(() => {}));
+      result = await controlDeadline(task, Math.max(1, 57000 - (Date.now() - startedAt)), () => { const failure = controlFailure('shell_save_pending', 'The browser is still finishing offline page setup. Its result is unconfirmed; keep this page open and check again.', 'worker-shell-save'); failure.writeState = 'pending'; return failure; });
     } else if (data.action === 'clearShell') result = await clearShell();
     else if (data.action === 'activateUpdate') {
-      await self.skipWaiting();
-      result = await shellStatus();
-    } else result = await shellStatus();
-    port.postMessage(Object.assign({ type: 'ECLIPSE_OFFLINE_RESULT', version: PROTOCOL_VERSION,
-      id: data.id, ok: true, workerBuild: WORKER_BUILD, capabilities: CAPABILITIES }, result));
+      await controlDeadline(self.skipWaiting(), Math.max(1, 4000 - (Date.now() - startedAt)), () => controlFailure('worker_activation_pending', 'The browser has not confirmed the offline update request yet. Keep this page open and retry setup.', 'worker-activation'));
+      result = { activationRequested: true };
+    } else {
+      const task = shellStatus();
+      if (identity.compatibilityFor) {
+        // Retained pages have a six-second status deadline. Give them their
+        // genuine shell observation when available, or an explicitly unknown
+        // observation plus usable identity; never invent a saved-page match.
+        try { result = await controlDeadline(task, Math.max(1, 4000 - (Date.now() - startedAt)), shellStatusPending); }
+        catch (failure) { result = { shellState: 'unknown', statusError: messageFailure(failure, 'status') }; }
+      } else result = await controlDeadline(task, Math.max(1, 11000 - (Date.now() - startedAt)), shellStatusPending);
+    }
+    reply(true, result);
   } catch (failure) {
-    const status = await shellStatus();
-    port.postMessage(Object.assign({ type: 'ECLIPSE_OFFLINE_RESULT', version: PROTOCOL_VERSION,
-      id: data.id, ok: false, workerBuild: WORKER_BUILD, capabilities: CAPABILITIES,
-      error: { code: failure.code || 'offline_error', message: failure.message || 'The offline action could not finish.' }
-    }, status));
+    // Reporting a known failure must not repeat the storage read that delayed
+    // setup, or hide the original failure behind another status operation.
+    reply(false, { error: messageFailure(failure, data.action) });
   }
 }
+
 
 // Installation is inert: no precache, imported code, forced update, or network.
 self.addEventListener('activate', event => { event.waitUntil(self.clients.claim()); });
