@@ -1,12 +1,13 @@
-/* ECLIPSE STK R74: retained archives and bounded cached-response lifetimes.
+/* ECLIPSE STK R75: retained archives, original bytes, and validated local playback.
  * Deploy beside index.html as JavaScript over HTTPS. This worker never fetches
  * music, models, private data, arbitrary message URLs, or background updates.
  * The page owns consent, original verification, saving, and archive removal.
  */
 'use strict';
 
-const WORKER_BUILD = 'eclipse-stk-offline-r74-v1';
-const PRIOR_WORKER_BUILD = 'eclipse-stk-offline-r73-v1';
+const WORKER_BUILD = 'eclipse-stk-offline-r75-v1';
+const PRIOR_WORKER_BUILD = 'eclipse-stk-offline-r74-v1';
+const RETAINED_WORKER_BUILD = 'eclipse-stk-offline-r73-v1';
 const LEGACY_WORKER_BUILD = 'eclipse-stk-offline-r70-v1';
 const CAPABILITIES = Object.freeze(['originals-v1', 'listening-v1']);
 const PROTOCOL_VERSION = 1;
@@ -22,11 +23,13 @@ const MAX_SHELL_BYTES = 24 * 1024 * 1024;
 const SHELL_PREFIX_BYTES = 16 * 1024;
 const SHELL_TIMEOUT_MS = 45000;
 const NAVIGATION_TIMEOUT_MS = 8000;
+const CACHE_READ_TIMEOUT_MS = 8000;
 const PROTECTED_BASELINE = 'eclipse-stk-2026-09-23-r50-xion-michael-q5-motherbrain2-fightchat-xion4lock-friendmother-fidelity1-michael-trusted-survivor1-final';
 let shellTask = null;
 let shellAbort = null;
 let shellEpoch = 0;
 let shellClearing = null;
+const pendingCacheReads = new Map();
 
 function error(code, message) {
   const value = new Error(message);
@@ -58,6 +61,51 @@ async function cancelBody(response, reason) {
       await disposalLimit(response.body.cancel(reason));
     }
   } catch (_) {}
+}
+
+// A stalled native CacheStorage.match cannot be cancelled. Keep its slot until
+// it settles, discard a late body, and bound the request that is waiting for it.
+// Parallel ranges wait for a free slot instead of cloning a large audio body.
+async function cachedResponse(url, cacheName, deadline = Date.now() + CACHE_READ_TIMEOUT_MS) {
+  const key = cacheName + ':' + url;
+  const pending = pendingCacheReads.get(key);
+  if (pending) {
+    if (pending.abandoned) throw error('STORAGE_BUSY', 'Saved storage is still opening this item.');
+    await new Promise((resolve, reject) => {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) { reject(error('STORAGE_TIMEOUT', 'Saved storage did not respond.')); return; }
+      const timer = setTimeout(() => reject(error('STORAGE_TIMEOUT', 'Saved storage did not respond.')), remaining);
+      pending.finished.then(() => { clearTimeout(timer); resolve(); });
+    });
+    return cachedResponse(url, cacheName, deadline);
+  }
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw error('STORAGE_TIMEOUT', 'Saved storage did not respond.');
+  let release;
+  const record = { abandoned: false, finished: new Promise(resolve => { release = resolve; }) };
+  pendingCacheReads.set(key, record);
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const timer = setTimeout(() => {
+      done = true; record.abandoned = true;
+      reject(error('STORAGE_TIMEOUT', 'Saved storage did not respond.'));
+      release();
+    }, remaining);
+    Promise.resolve().then(() => caches.match(url, { cacheName })).then(async response => {
+      if (done) {
+        // The request already timed out, so retain the slot until native cleanup
+        // really settles. A bounded cleanup here would allow repeated late
+        // responses to accumulate while the browser is still holding the first.
+        try { if (response?.body && !response.body.locked) await response.body.cancel('Late saved storage response'); } catch (_) {}
+      }
+      else { done = true; clearTimeout(timer); resolve(response); }
+    }, failure => {
+      if (!done) { done = true; clearTimeout(timer); reject(failure); }
+    }).finally(() => {
+      if (pendingCacheReads.get(key) === record) pendingCacheReads.delete(key);
+      release();
+    });
+  });
 }
 
 async function publicClient(id) {
@@ -240,7 +288,7 @@ async function serveOriginal(event, url, listening = false) {
   if (!key || request.mode === 'navigate' || !(await publicClient(event.clientId))) return emptyResponse(404);
   if (!['GET', 'HEAD'].includes(request.method)) return emptyResponse(405, { Allow: 'GET, HEAD' });
   let cached;
-  try { cached = await caches.match(key.url, { cacheName: listening ? LISTENING_CACHE : ORIGINALS_CACHE }); }
+  try { cached = await cachedResponse(key.url, listening ? LISTENING_CACHE : ORIGINALS_CACHE); }
   catch (_) { return emptyResponse(503); }
   const info = listening ? listeningInfo(cached, key) : originalInfo(cached, key);
   if (!info || !cached.body) {
@@ -272,7 +320,7 @@ async function serveOriginal(event, url, listening = false) {
 function shellInfo(response) {
   // Keep a previously validated public snapshot usable until the new one is
   // committed. Upgrading this worker never deletes the old page or music.
-  if (!response || response.status !== 200 || ![WORKER_BUILD, PRIOR_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
+  if (!response || response.status !== 200 || ![WORKER_BUILD, PRIOR_WORKER_BUILD, RETAINED_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
       response.headers.get('X-Eclipse-Shell-URL') !== SHELL_URL ||
       (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase() !== 'text/html') return null;
   const bytes = positiveSize(response.headers.get('Content-Length'), MAX_SHELL_BYTES);
@@ -285,7 +333,7 @@ function shellInfo(response) {
 
 async function savedShell() {
   try {
-    const response = await caches.match(SHELL_URL, { cacheName: SHELL_CACHE });
+    const response = await cachedResponse(SHELL_URL, SHELL_CACHE);
     const info = shellInfo(response);
     if (info) return { response, info };
     await cancelBody(response, 'Invalid public shell');
