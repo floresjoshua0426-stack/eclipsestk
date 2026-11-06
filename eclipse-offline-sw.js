@@ -1,13 +1,14 @@
-/* ECLIPSE STK R75: retained archives, original bytes, and validated local playback.
+/* ECLIPSE STK R76: retained archives, original bytes, and validated local playback.
  * Deploy beside index.html as JavaScript over HTTPS. This worker never fetches
  * music, models, private data, arbitrary message URLs, or background updates.
  * The page owns consent, original verification, saving, and archive removal.
  */
 'use strict';
 
-const WORKER_BUILD = 'eclipse-stk-offline-r75-v1';
-const PRIOR_WORKER_BUILD = 'eclipse-stk-offline-r74-v1';
-const RETAINED_WORKER_BUILD = 'eclipse-stk-offline-r73-v1';
+const WORKER_BUILD = 'eclipse-stk-offline-r76-v1';
+const PRIOR_WORKER_BUILD = 'eclipse-stk-offline-r75-v1';
+const RETAINED_WORKER_BUILD = 'eclipse-stk-offline-r74-v1';
+const R73_WORKER_BUILD = 'eclipse-stk-offline-r73-v1';
 const LEGACY_WORKER_BUILD = 'eclipse-stk-offline-r70-v1';
 const CAPABILITIES = Object.freeze(['originals-v1', 'listening-v1']);
 const PROTOCOL_VERSION = 1;
@@ -320,7 +321,7 @@ async function serveOriginal(event, url, listening = false) {
 function shellInfo(response) {
   // Keep a previously validated public snapshot usable until the new one is
   // committed. Upgrading this worker never deletes the old page or music.
-  if (!response || response.status !== 200 || ![WORKER_BUILD, PRIOR_WORKER_BUILD, RETAINED_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
+  if (!response || response.status !== 200 || ![WORKER_BUILD, PRIOR_WORKER_BUILD, RETAINED_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
       response.headers.get('X-Eclipse-Shell-URL') !== SHELL_URL ||
       (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase() !== 'text/html') return null;
   const bytes = positiveSize(response.headers.get('Content-Length'), MAX_SHELL_BYTES);
