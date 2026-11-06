@@ -647,7 +647,15 @@ async function handleMessage(event) {
     id: data.id, action: data.action, ok }, identity, authenticated ? { capabilities: CAPABILITIES } : {}, result);
   const sendPort = value => { try { port.postMessage(value); } catch (_) {} };
   let client;
-  try { client = await validatedMessageClient(event.source && event.source.id); }
+  try {
+    // The browser supplies event.source as the actual sending WindowClient.
+    // Validate that browser-owned Client directly before invoking the potentially
+    // stalled clients.get/matchAll APIs. Never trust a caller-provided URL/id.
+    const source = event.source;
+    client = source && typeof source.id === 'string' && source.id &&
+      source.type === 'window' && validMessageClient(source, source.id) ? source :
+      await validatedMessageClient(source && source.id);
+  }
   catch (failure) {
     // No client was authorized and no action ran. Only a generic pending error
     // goes back on the request's port; never send private/shell data or claim
