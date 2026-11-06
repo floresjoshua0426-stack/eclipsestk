@@ -1,11 +1,12 @@
-/* ECLIPSE STK R73: explicit public shell, originals, and saved listening copies.
+/* ECLIPSE STK R74: retained archives and bounded cached-response lifetimes.
  * Deploy beside index.html as JavaScript over HTTPS. This worker never fetches
  * music, models, private data, arbitrary message URLs, or background updates.
  * The page owns consent, original verification, saving, and archive removal.
  */
 'use strict';
 
-const WORKER_BUILD = 'eclipse-stk-offline-r73-v1';
+const WORKER_BUILD = 'eclipse-stk-offline-r74-v1';
+const PRIOR_WORKER_BUILD = 'eclipse-stk-offline-r73-v1';
 const LEGACY_WORKER_BUILD = 'eclipse-stk-offline-r70-v1';
 const CAPABILITIES = Object.freeze(['originals-v1', 'listening-v1']);
 const PROTOCOL_VERSION = 1;
@@ -44,10 +45,17 @@ function positiveSize(value, maximum) {
   return Number.isSafeInteger(parsed) && parsed <= maximum ? parsed : 0;
 }
 
-function cancelBody(response, reason) {
+function disposalLimit(task) {
+  return new Promise(resolve => {
+    const timer = setTimeout(resolve, 2500);
+    Promise.resolve(task).then(() => { clearTimeout(timer); resolve(); }, () => { clearTimeout(timer); resolve(); });
+  });
+}
+
+async function cancelBody(response, reason) {
   try {
     if (response && response.body && !response.body.locked) {
-      Promise.resolve(response.body.cancel(reason)).catch(() => {});
+      await disposalLimit(response.body.cancel(reason));
     }
   } catch (_) {}
 }
@@ -179,10 +187,14 @@ function rangeStream(body, first, last) {
   const reader = body.getReader();
   let offset = 0;
   let complete = false;
+  let cleanup = null;
   const stop = reason => {
-    if (complete) return;
+    if (cleanup) return cleanup;
     complete = true;
-    Promise.resolve(reader.cancel(reason)).catch(() => {});
+    cleanup = Promise.resolve().then(() => reader.cancel(reason)).catch(() => {}).finally(() => {
+      try { reader.releaseLock(); } catch (_) {}
+    });
+    return cleanup;
   };
   // Consume one cached stream, honoring downstream pull/cancel. Seeking near the
   // end discards preceding chunks; it never accumulates or copies the whole WAV.
@@ -201,19 +213,24 @@ function rangeStream(body, first, last) {
           if (offset <= first) continue;
           const start = Math.max(0, first - chunkStart);
           const end = Math.min(chunk.byteLength, last + 1 - chunkStart);
-          if (end > start) controller.enqueue(chunk.subarray(start, end));
+          if (end > start) {
+            const part = chunk.subarray(start, end);
+            // A tiny Safari probe must not retain a large cached chunk's backing
+            // buffer. Large audio chunks remain zero-copy and backpressured.
+            controller.enqueue(part.byteLength <= 65536 && part.buffer.byteLength > part.byteLength ? part.slice() : part);
+          }
           if (offset > last) {
-            stop('Requested bytes delivered');
+            await disposalLimit(stop('Requested bytes delivered'));
             controller.close();
           }
           return;
         }
       } catch (failure) {
-        stop(failure);
+        await disposalLimit(stop(failure));
         try { controller.error(failure); } catch (_) {}
       }
     },
-    cancel(reason) { stop(reason || 'Playback cancelled'); }
+    cancel(reason) { return disposalLimit(stop(reason || 'Playback cancelled')); }
   }, { highWaterMark: 0 });
 }
 
@@ -227,7 +244,7 @@ async function serveOriginal(event, url, listening = false) {
   catch (_) { return emptyResponse(503); }
   const info = listening ? listeningInfo(cached, key) : originalInfo(cached, key);
   if (!info || !cached.body) {
-    cancelBody(cached, 'Invalid archive entry');
+    await cancelBody(cached, 'Invalid archive entry');
     return emptyResponse(404);
   }
   const headers = listening ? listeningHeaders(cached, info) : originalHeaders(cached, info);
@@ -236,13 +253,13 @@ async function serveOriginal(event, url, listening = false) {
   const range = request.method === 'GET' && !request.headers.has('If-Range') ?
     byteRange(request.headers.get('Range'), info.bytes) : null;
   if (range === false) {
-    cancelBody(cached, 'Unsatisfiable range');
+    await cancelBody(cached, 'Unsatisfiable range');
     headers.set('Content-Range', 'bytes */' + info.bytes);
     headers.set('Content-Length', '0');
     return new Response(null, { status: 416, headers });
   }
   if (request.method === 'HEAD') {
-    cancelBody(cached, 'HEAD needs no body');
+    await cancelBody(cached, 'HEAD needs no body');
     return new Response(null, { status: 200, headers });
   }
   const first = range ? range.first : 0;
@@ -255,7 +272,7 @@ async function serveOriginal(event, url, listening = false) {
 function shellInfo(response) {
   // Keep a previously validated public snapshot usable until the new one is
   // committed. Upgrading this worker never deletes the old page or music.
-  if (!response || response.status !== 200 || ![WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
+  if (!response || response.status !== 200 || ![WORKER_BUILD, PRIOR_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
       response.headers.get('X-Eclipse-Shell-URL') !== SHELL_URL ||
       (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase() !== 'text/html') return null;
   const bytes = positiveSize(response.headers.get('Content-Length'), MAX_SHELL_BYTES);
@@ -271,7 +288,7 @@ async function savedShell() {
     const response = await caches.match(SHELL_URL, { cacheName: SHELL_CACHE });
     const info = shellInfo(response);
     if (info) return { response, info };
-    cancelBody(response, 'Invalid public shell');
+    await cancelBody(response, 'Invalid public shell');
   } catch (_) {}
   return null;
 }
@@ -279,7 +296,7 @@ async function savedShell() {
 async function shellStatus() {
   const saved = await savedShell();
   if (!saved) return { shellReady: false };
-  cancelBody(saved.response, 'Status needs no body');
+  await cancelBody(saved.response, 'Status needs no body');
   return saved.info;
 }
 
@@ -301,12 +318,12 @@ async function readPublicShell(response, expectedBuild, signal) {
       (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase() !== 'text/html' ||
       response.headers.has('Content-Range') || /(?:^|,)\s*(?:\*|cookie|authorization)\s*(?:,|$)/i.test(vary) ||
       /(?:^|,)\s*private(?:\s|=|,|$)/i.test(response.headers.get('Cache-Control') || '')) {
-    cancelBody(response, 'Public HTML response required');
+    await cancelBody(response, 'Public HTML response required');
     throw error('shell_response', 'The server did not return the public ECLIPSE STK page.');
   }
   const declared = response.headers.get('Content-Length');
   if (declared && !positiveSize(declared, MAX_SHELL_BYTES)) {
-    cancelBody(response, 'Shell size limit');
+    await cancelBody(response, 'Shell size limit');
     throw error('shell_size', 'The public page exceeds the offline page limit.');
   }
   if (!response.body) throw error('shell_response', 'The public page has no body.');
@@ -349,7 +366,7 @@ async function readPublicShell(response, expectedBuild, signal) {
     const blob = new Blob(chunks, { type: 'text/html' });
     return { blob, size, shellBuild };
   } catch (failure) {
-    Promise.resolve(reader.cancel(failure)).catch(() => {});
+    await disposalLimit(Promise.resolve().then(() => reader.cancel(failure)));
     throw failure;
   } finally { try { reader.releaseLock(); } catch (_) {} }
 }
@@ -442,13 +459,14 @@ async function networkFirstShell(request) {
       }, NAVIGATION_TIMEOUT_MS);
     });
     const response = await Promise.race([fetch(request, { signal: controller.signal }), deadline]);
+    clearTimeout(timer); // Unused-cache cleanup must not abort the successful online response.
     if (response.status >= 500 && response.status <= 599) {
-      cancelBody(response, 'Using saved public page');
+      await cancelBody(response, 'Using saved public page');
       return saved.response;
     }
     // Authentication failures, redirects, and other authoritative network
     // responses are not replaced. No navigation response is written to Cache.
-    cancelBody(saved.response, 'Using online page');
+    await cancelBody(saved.response, 'Using online page');
     return response;
   } catch (_) {
     controller.abort();
