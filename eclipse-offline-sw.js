@@ -1,11 +1,12 @@
-/* ECLIPSE STK R85: retained archives, original bytes, and validated local playback.
+/* ECLIPSE STK R86: retained archives, original bytes, and validated local playback.
  * Deploy beside index.html as JavaScript over HTTPS. This worker never fetches
  * music, models, private data, arbitrary message URLs, or background updates.
  * The page owns consent, original verification, saving, and archive removal.
  */
 'use strict';
 
-const WORKER_BUILD = 'eclipse-stk-offline-r85-v1';
+const WORKER_BUILD = 'eclipse-stk-offline-r86-v1';
+const R85_WORKER_BUILD = 'eclipse-stk-offline-r85-v1';
 const R84_WORKER_BUILD = 'eclipse-stk-offline-r84-v1';
 const R83_WORKER_BUILD = 'eclipse-stk-offline-r83-v1';
 const R82_WORKER_BUILD = 'eclipse-stk-offline-r82-v1';
@@ -228,7 +229,7 @@ const archiveStorage=(()=>{
  }
  async function keys(name){
   if(!paths.has(name))throw new Error('Unknown archive bucket.');const all=new Map(),verified=new Set(),errors=[];
-  try{for(const row of await listFiles(name)){const url=allowed(name,row.url);manifest(row,name,url);all.set(url,new Request(url));verified.add(url)}}catch(error){errors.push(error)}
+  try{for(const row of await listFiles(name)){try{const url=allowed(name,row.url);all.set(url,new Request(url));manifest(row,name,url);verified.add(url)}catch(error){errors.push(error)}}}catch(error){errors.push(error)}
   for(const physical of legacyNames(name))try{for(const request of await legacyCall(physical,'keys')){try{const url=allowed(name,request.url);if(!all.has(url))all.set(url,new Request(url))}catch{}}}catch(error){errors.push(legacyFault(physical,'keys',error))}
   const result=[...all.values()];Object.defineProperties(result,{legacyError:{value:errors[0]||null},recoveryURLs:{value:verified},storageErrors:{value:errors.map(e=>({name:e.name,code:e.code||'',cache:e.storageCache||DB}))}});return result;
  }
@@ -505,7 +506,7 @@ async function serveOriginal(event, url, listening = false) {
 function shellInfo(response) {
   // Keep a previously validated public snapshot usable until the new one is
   // committed. Upgrading this worker never deletes the old page or music.
-  if (!response || response.status !== 200 || ![WORKER_BUILD, R84_WORKER_BUILD, R83_WORKER_BUILD, R82_WORKER_BUILD, R81_WORKER_BUILD, R80_WORKER_BUILD, R78_WORKER_BUILD, PRIOR_WORKER_BUILD, R76_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
+  if (!response || response.status !== 200 || ![WORKER_BUILD, R85_WORKER_BUILD, R84_WORKER_BUILD, R83_WORKER_BUILD, R82_WORKER_BUILD, R81_WORKER_BUILD, R80_WORKER_BUILD, R78_WORKER_BUILD, PRIOR_WORKER_BUILD, R76_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
       response.headers.get('X-Eclipse-Shell-URL') !== SHELL_URL ||
       (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase() !== 'text/html') return null;
   const bytes = positiveSize(response.headers.get('Content-Length'), MAX_SHELL_BYTES);
@@ -747,6 +748,7 @@ async function networkFirstShell(request) {
 }
 
 const LEGACY_MESSAGE_PROFILES = Object.freeze({
+  'eclipse-stk-2026-11-06-r85-resumable-collection': 'eclipse-stk-offline-r85-v1',
   'eclipse-stk-2026-11-06-r82-archive-route-repair': 'eclipse-stk-offline-r82-v1',
   'eclipse-stk-2026-11-06-r81-save-connection-repair': 'eclipse-stk-offline-r81-v1',
   'eclipse-stk-2026-11-06-r80-targeted-recovery': 'eclipse-stk-offline-r80-v1',
