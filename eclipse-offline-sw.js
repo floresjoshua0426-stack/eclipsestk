@@ -1,11 +1,12 @@
-/* ECLIPSE STK R82: retained archives, original bytes, and validated local playback.
+/* ECLIPSE STK R83: retained archives, original bytes, and validated local playback.
  * Deploy beside index.html as JavaScript over HTTPS. This worker never fetches
  * music, models, private data, arbitrary message URLs, or background updates.
  * The page owns consent, original verification, saving, and archive removal.
  */
 'use strict';
 
-const WORKER_BUILD = 'eclipse-stk-offline-r82-v1';
+const WORKER_BUILD = 'eclipse-stk-offline-r83-v1';
+const R82_WORKER_BUILD = 'eclipse-stk-offline-r82-v1';
 const R81_WORKER_BUILD = 'eclipse-stk-offline-r81-v1';
 const R80_WORKER_BUILD = 'eclipse-stk-offline-r80-v1';
 const R78_WORKER_BUILD = 'eclipse-stk-offline-r78-v1';
@@ -75,6 +76,46 @@ async function cancelBody(response, reason) {
 // A stalled native CacheStorage.match cannot be cancelled. Keep its slot until
 // it settles, discard a late body, and bound the request that is waiting for it.
 // Parallel ranges wait for a free slot instead of cloning a large audio body.
+// R83: new original writes use a separate store. The old originals and all
+// listening copies remain untouched. Both stores share the existing audio URL.
+const originalStoreRecovery=(()=>{
+ 'use strict';
+ const legacy='eclipse-stk-originals-v1',recovery='eclipse-stk-originals-recovery-v1';
+ let lastLegacyFailure=null;
+ const internal=error=>error?.name==='TypeError'&&/^Internal error\.?$/i.test(String(error.message||''));
+ function failure(error,stage){
+  const value=new Error('The older original archive could not be read. Its bytes were kept; new originals can use the separate recovery archive.');
+  Object.assign(value,{name:'ArchiveLegacyReadError',code:'legacy_original_storage_unavailable',legacyUnavailable:true,storageCache:legacy,storageAction:stage,nativeName:error?.name||'Error',nativeMessage:String(error?.message||'').slice(0,240)});
+  lastLegacyFailure={cache:legacy,action:stage,name:value.nativeName,message:value.nativeMessage,time:new Date().toISOString()};return value;
+ }
+ async function physicalMatch(name,url){
+  try{return await(await caches.open(name)).match(url)}catch(error){
+   if(!internal(error))throw error;
+   // Retry only a settled failure, using a fresh native path, not the same handle.
+   return caches.match?caches.match(url,{cacheName:name}):(await caches.open(name)).match(url);
+  }
+ }
+ async function recoveryMatch(url){if(!await caches.has(recovery))return undefined;return physicalMatch(recovery,url)}
+ async function match(url){
+  const saved=await recoveryMatch(url);if(saved)return saved;
+  try{if(!await caches.has(legacy))return undefined;return await physicalMatch(legacy,url)}catch(error){throw failure(error,'match')}
+ }
+ async function keys(){
+  const fresh=await caches.has(recovery)?await(await caches.open(recovery)).keys():[],all=new Map(fresh.map(request=>[request.url,request]));
+  let legacyError=null;
+  try{if(await caches.has(legacy))for(const request of await(await caches.open(legacy)).keys())if(!all.has(request.url))all.set(request.url,request)}catch(error){legacyError=failure(error,'keys')}
+  const result=[...all.values()];Object.defineProperties(result,{legacyError:{value:legacyError},recoveryURLs:{value:new Set(fresh.map(request=>request.url))}});return result;
+ }
+ async function has(){if(await caches.has(recovery))return true;return caches.has(legacy)}
+ async function put(url,response){return(await caches.open(recovery)).put(url,response)}
+ async function remove(url){
+  // Called only for the user's explicit remove action, never for recovery.
+  let removed=false;for(const name of [legacy,recovery])if(await caches.has(name))removed=await(await caches.open(name)).delete(url)||removed;return removed;
+ }
+ const adapter=Object.freeze({match,keys,put,delete:remove,recoveryMatch});
+ return Object.freeze({legacy,recovery,open:async()=>adapter,has,match,recoveryMatch,snapshot:()=>({writeCache:recovery,legacyCache:legacy,lastLegacyFailure:lastLegacyFailure?{...lastLegacyFailure}:null})});
+})();
+
 async function cachedResponse(url, cacheName, deadline = Date.now() + CACHE_READ_TIMEOUT_MS) {
   const key = cacheName + ':' + url;
   const pending = pendingCacheReads.get(key);
@@ -100,7 +141,7 @@ async function cachedResponse(url, cacheName, deadline = Date.now() + CACHE_READ
       reject(error('STORAGE_TIMEOUT', 'Saved storage did not respond.'));
       release();
     }, remaining);
-    Promise.resolve().then(() => caches.open(cacheName).then(cache => cache.match(url))).then(async response => {
+    Promise.resolve().then(() => (cacheName === ORIGINALS_CACHE ? originalStoreRecovery.open() : caches.open(cacheName)).then(cache => cache.match(url))).then(async response => {
       if (done) {
         // The request already timed out, so retain the slot until native cleanup
         // really settles. A bounded cleanup here would allow repeated late
@@ -328,7 +369,7 @@ async function serveOriginal(event, url, listening = false) {
 function shellInfo(response) {
   // Keep a previously validated public snapshot usable until the new one is
   // committed. Upgrading this worker never deletes the old page or music.
-  if (!response || response.status !== 200 || ![WORKER_BUILD, R81_WORKER_BUILD, R80_WORKER_BUILD, R78_WORKER_BUILD, PRIOR_WORKER_BUILD, R76_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
+  if (!response || response.status !== 200 || ![WORKER_BUILD, R82_WORKER_BUILD, R81_WORKER_BUILD, R80_WORKER_BUILD, R78_WORKER_BUILD, PRIOR_WORKER_BUILD, R76_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
       response.headers.get('X-Eclipse-Shell-URL') !== SHELL_URL ||
       (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase() !== 'text/html') return null;
   const bytes = positiveSize(response.headers.get('Content-Length'), MAX_SHELL_BYTES);
@@ -570,6 +611,7 @@ async function networkFirstShell(request) {
 }
 
 const LEGACY_MESSAGE_PROFILES = Object.freeze({
+  'eclipse-stk-2026-11-06-r82-archive-route-repair': 'eclipse-stk-offline-r82-v1',
   'eclipse-stk-2026-11-06-r81-save-connection-repair': 'eclipse-stk-offline-r81-v1',
   'eclipse-stk-2026-11-06-r80-targeted-recovery': 'eclipse-stk-offline-r80-v1',
   'eclipse-stk-2026-11-06-r79-connection-progress-recovery': 'eclipse-stk-offline-r78-v1',
@@ -768,7 +810,11 @@ self.addEventListener('message', event => { event.waitUntil(handleMessage(event)
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (url.origin !== BASE_URL.origin) return;
-  if (url.pathname === new URL(CONTROL_URL).pathname) {
+  if (url.pathname === new URL('__eclipse_offline_capabilities__', BASE_URL).pathname && !url.search && !url.hash) {
+    // Public, read-only capability metadata. It does not open storage, expose
+    // private state, or activate anything. A static-host 404 cannot pass it.
+    event.respondWith(event.request.method === 'GET' ? new Response(JSON.stringify({workerBuild:WORKER_BUILD,originalRecovery:originalStoreRecovery.recovery}), {headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Cross-Origin-Resource-Policy':'same-origin','X-Eclipse-Worker-Actual':WORKER_BUILD}}) : emptyResponse(405));
+  } else if (url.pathname === new URL(CONTROL_URL).pathname) {
     event.respondWith(handleControlFetch(event, url));
   } else if (url.pathname.startsWith(LISTENING_PREFIX)) {
     event.respondWith(serveOriginal(event, url, true));
