@@ -1,11 +1,12 @@
-/* ECLIPSE STK R80: retained archives, original bytes, and validated local playback.
+/* ECLIPSE STK R81: retained archives, original bytes, and validated local playback.
  * Deploy beside index.html as JavaScript over HTTPS. This worker never fetches
  * music, models, private data, arbitrary message URLs, or background updates.
  * The page owns consent, original verification, saving, and archive removal.
  */
 'use strict';
 
-const WORKER_BUILD = 'eclipse-stk-offline-r80-v1';
+const WORKER_BUILD = 'eclipse-stk-offline-r81-v1';
+const R80_WORKER_BUILD = 'eclipse-stk-offline-r80-v1';
 const R78_WORKER_BUILD = 'eclipse-stk-offline-r78-v1';
 const PRIOR_WORKER_BUILD = 'eclipse-stk-offline-r77-v1';
 const R76_WORKER_BUILD = 'eclipse-stk-offline-r76-v1';
@@ -13,7 +14,7 @@ const RETAINED_WORKER_BUILD = 'eclipse-stk-offline-r75-v1';
 const R74_WORKER_BUILD = 'eclipse-stk-offline-r74-v1';
 const R73_WORKER_BUILD = 'eclipse-stk-offline-r73-v1';
 const LEGACY_WORKER_BUILD = 'eclipse-stk-offline-r70-v1';
-const CAPABILITIES = Object.freeze(['originals-v1', 'listening-v1']);
+const CAPABILITIES = Object.freeze(['originals-v1', 'listening-v1', 'control-fetch-v1']);
 const PROTOCOL_VERSION = 1;
 const ORIGINALS_CACHE = 'eclipse-stk-originals-v1';
 const LISTENING_CACHE = 'eclipse-stk-listening-v1';
@@ -326,7 +327,7 @@ async function serveOriginal(event, url, listening = false) {
 function shellInfo(response) {
   // Keep a previously validated public snapshot usable until the new one is
   // committed. Upgrading this worker never deletes the old page or music.
-  if (!response || response.status !== 200 || ![WORKER_BUILD, R78_WORKER_BUILD, PRIOR_WORKER_BUILD, R76_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
+  if (!response || response.status !== 200 || ![WORKER_BUILD, R80_WORKER_BUILD, R78_WORKER_BUILD, PRIOR_WORKER_BUILD, R76_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
       response.headers.get('X-Eclipse-Shell-URL') !== SHELL_URL ||
       (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase() !== 'text/html') return null;
   const bytes = positiveSize(response.headers.get('Content-Length'), MAX_SHELL_BYTES);
@@ -568,6 +569,7 @@ async function networkFirstShell(request) {
 }
 
 const LEGACY_MESSAGE_PROFILES = Object.freeze({
+  'eclipse-stk-2026-11-06-r80-targeted-recovery': 'eclipse-stk-offline-r80-v1',
   'eclipse-stk-2026-11-06-r79-connection-progress-recovery': 'eclipse-stk-offline-r78-v1',
   'eclipse-stk-2026-11-06-r78-offline-collection': 'eclipse-stk-offline-r78-v1',
   'eclipse-stk-2026-11-06-r77-offline-companion-recovery': 'eclipse-stk-offline-r77-v1',
@@ -636,75 +638,125 @@ async function validatedMessageClient(id) {
   });
 }
 
+// R81 control endpoint: same-origin, exact public client, small JSON only.
+// This is a local Service Worker route, not an external server or music proxy.
+const CONTROL_URL = new URL('__eclipse_offline_control__', BASE_URL).href;
+const controlRequests = new Map();
+const CONTROL_RECORD_LIMIT = 128;
+
+function validControlRequest(data) {
+  return !!data && typeof data === 'object' && !Array.isArray(data) &&
+    data.type === 'ECLIPSE_OFFLINE' && data.version === PROTOCOL_VERSION &&
+    typeof data.id === 'string' && /^[\w.-]{1,80}$/.test(data.id) &&
+    ['hello', 'ensureShell', 'status', 'clearShell', 'activateUpdate'].includes(data.action) &&
+    (data.appBuild === undefined || typeof data.appBuild === 'string' && /^eclipse-stk-[A-Za-z0-9-]{1,180}$/.test(data.appBuild)) &&
+    (data.refresh === undefined || typeof data.refresh === 'boolean');
+}
+
+function controlEnvelope(data, ok, result, authenticated = true) {
+  return Object.assign({ type: 'ECLIPSE_OFFLINE_RESULT', version: PROTOCOL_VERSION,
+    id: data.id, action: data.action, ok }, messageIdentity(data),
+    authenticated ? { capabilities: CAPABILITIES } : {}, result);
+}
+
+async function executeControl(data, event) {
+  const startedAt = Date.now(), identity = messageIdentity(data);
+  if (data.action === 'hello') return {};
+  if (data.action === 'ensureShell') {
+    const task = ensureShell(data.appBuild || '', data.refresh === true);
+    event.waitUntil(task.catch(() => {}));
+    return controlDeadline(task, Math.max(1, 57000 - (Date.now() - startedAt)), () => {
+      const failure = controlFailure('shell_save_pending', 'The browser is still finishing offline page setup. Its result is unconfirmed; keep this page open and check again.', 'worker-shell-save');
+      failure.writeState = 'pending'; return failure;
+    });
+  }
+  if (data.action === 'clearShell') return clearShell();
+  if (data.action === 'activateUpdate') {
+    await controlDeadline(self.skipWaiting(), 4000, () => controlFailure('worker_activation_pending', 'The browser has not confirmed the offline update request yet. Keep this page open and retry setup.', 'worker-activation'));
+    return { activationRequested: true };
+  }
+  const task = shellStatus();
+  if (identity.compatibilityFor) {
+    try { return await controlDeadline(task, 4000, shellStatusPending); }
+    catch (failure) { return { shellState: 'unknown', statusError: messageFailure(failure, 'status') }; }
+  }
+  return controlDeadline(task, 11000, shellStatusPending);
+}
+
+function dispatchControl(client, data, event) {
+  const key = client.id + ':' + data.id;
+  const signature = JSON.stringify([data.action, data.appBuild || '', data.refresh === true]);
+  const previous = controlRequests.get(key);
+  if (previous) {
+    if (previous.signature !== signature) return Promise.resolve(controlEnvelope(data, false, { error: messageFailure(error('request_conflict', 'A setup request changed while it was in progress. Retry setup.'), data.action) }));
+    return previous.task;
+  }
+  const now = Date.now();
+  for (const [id, record] of controlRequests) {
+    if (record.completedAt && now - record.completedAt > 120000) controlRequests.delete(id);
+  }
+  if (controlRequests.size >= CONTROL_RECORD_LIMIT) {
+    for (const [id, record] of controlRequests) {
+      if (record.completedAt) controlRequests.delete(id);
+      if (controlRequests.size < CONTROL_RECORD_LIMIT) break;
+    }
+  }
+  if (controlRequests.size >= CONTROL_RECORD_LIMIT || [...controlRequests.values()].filter(record => record.clientId === client.id && !record.completedAt).length >= 8) {
+    return Promise.resolve(controlEnvelope(data, false, { error: messageFailure(error('control_busy', 'Offline setup is already busy. Existing files were kept; retry after the current operation.'), data.action) }));
+  }
+  const record = { clientId: client.id, signature, completedAt: 0, task: null };
+  // All three routes share this promise. A delayed reply cannot create a second
+  // shell save, clear, or activation request while the first is still running.
+  record.task = Promise.resolve().then(() => executeControl(data, event)).then(
+    result => controlEnvelope(data, true, result),
+    failure => controlEnvelope(data, false, { error: messageFailure(failure, data.action) })
+  ).finally(() => { record.completedAt = Date.now(); });
+  controlRequests.set(key, record);
+  return record.task;
+}
+
 async function handleMessage(event) {
-  const startedAt = Date.now();
-  const port = event.ports && event.ports[0];
-  const data = event.data;
-  if (!port || !data || typeof data !== 'object' || data.type !== 'ECLIPSE_OFFLINE' ||
-      data.version !== PROTOCOL_VERSION || typeof data.id !== 'string' || !/^[\w.-]{1,80}$/.test(data.id) ||
-      !['hello', 'ensureShell', 'status', 'clearShell', 'activateUpdate'].includes(data.action) ||
-      (event.origin && event.origin !== BASE_URL.origin)) return;
-  const identity = messageIdentity(data);
-  const envelope = (ok, result, authenticated) => Object.assign({ type: 'ECLIPSE_OFFLINE_RESULT', version: PROTOCOL_VERSION,
-    id: data.id, action: data.action, ok }, identity, authenticated ? { capabilities: CAPABILITIES } : {}, result);
-  const sendPort = value => { try { port.postMessage(value); } catch (_) {} };
+  const port = event.ports && event.ports[0], data = event.data;
+  if (!validControlRequest(data) || event.origin && event.origin !== BASE_URL.origin) return;
+  const sendPort = value => { try { if (port) port.postMessage(value); } catch (_) {} };
   let client;
   try {
-    // The browser supplies event.source as the actual sending WindowClient.
-    // Validate that browser-owned Client directly before invoking the potentially
-    // stalled clients.get/matchAll APIs. Never trust a caller-provided URL/id.
     const source = event.source;
     client = source && typeof source.id === 'string' && source.id &&
       source.type === 'window' && validMessageClient(source, source.id) ? source :
       await validatedMessageClient(source && source.id);
-  }
-  catch (failure) {
-    // No client was authorized and no action ran. Only a generic pending error
-    // goes back on the request's port; never send private/shell data or claim
-    // capabilities, and never use an unauthenticated Client.postMessage route.
-    sendPort(envelope(false, { error: messageFailure(failure, data.action) }, false));
+  } catch (failure) {
+    sendPort(controlEnvelope(data, false, { error: messageFailure(failure, data.action) }, false));
     return;
   }
   if (!client) return;
-  const reply = (ok, result) => {
-    const value = envelope(ok, result, true);
-    sendPort(value);
-    // A lost transferred-port reply must not make a completed action look
-    // stalled. This second route uses only the browser-validated exact Client.
-    try { client.postMessage(value); } catch (_) {}
-  };
-  let result;
+  const value = await dispatchControl(client, data, event);
+  sendPort(value);
+  try { client.postMessage(value); } catch (_) {}
+}
+
+async function handleControlFetch(event, url) {
+  const request = event.request;
+  if (url.href !== CONTROL_URL || request.method !== 'POST') return emptyResponse(405, { Allow: 'POST' });
+  if (request.mode !== 'same-origin' || request.headers.get('X-Eclipse-Control') !== '1' ||
+      (request.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase() !== 'application/json' ||
+      request.headers.get('Origin') && request.headers.get('Origin') !== BASE_URL.origin ||
+      !event.clientId || Number(request.headers.get('Content-Length') || 0) > 4096) return emptyResponse(403);
+  let client, data;
   try {
-    if (data.action === 'hello') result = {};
-    else if (data.action === 'ensureShell') {
-      if (data.appBuild !== undefined && (typeof data.appBuild !== 'string' || !/^eclipse-stk-[A-Za-z0-9-]{1,180}$/.test(data.appBuild))) {
-        throw error('invalid_build', 'An ECLIPSE STK release identifier is required.');
-      }
-      const task = ensureShell(data.appBuild || '', data.refresh === true);
-      // The RPC may report an unconfirmed result before an uncancellable native
-      // write settles. Its actual task remains owned, with no duplicate save.
-      event.waitUntil(task.catch(() => {}));
-      result = await controlDeadline(task, Math.max(1, 57000 - (Date.now() - startedAt)), () => { const failure = controlFailure('shell_save_pending', 'The browser is still finishing offline page setup. Its result is unconfirmed; keep this page open and check again.', 'worker-shell-save'); failure.writeState = 'pending'; return failure; });
-    } else if (data.action === 'clearShell') result = await clearShell();
-    else if (data.action === 'activateUpdate') {
-      await controlDeadline(self.skipWaiting(), Math.max(1, 4000 - (Date.now() - startedAt)), () => controlFailure('worker_activation_pending', 'The browser has not confirmed the offline update request yet. Keep this page open and retry setup.', 'worker-activation'));
-      result = { activationRequested: true };
-    } else {
-      const task = shellStatus();
-      if (identity.compatibilityFor) {
-        // Retained pages have a six-second status deadline. Give them their
-        // genuine shell observation when available, or an explicitly unknown
-        // observation plus usable identity; never invent a saved-page match.
-        try { result = await controlDeadline(task, Math.max(1, 4000 - (Date.now() - startedAt)), shellStatusPending); }
-        catch (failure) { result = { shellState: 'unknown', statusError: messageFailure(failure, 'status') }; }
-      } else result = await controlDeadline(task, Math.max(1, 11000 - (Date.now() - startedAt)), shellStatusPending);
-    }
-    reply(true, result);
-  } catch (failure) {
-    // Reporting a known failure must not repeat the storage read that delayed
-    // setup, or hide the original failure behind another status operation.
-    reply(false, { error: messageFailure(failure, data.action) });
-  }
+    client = await validatedMessageClient(event.clientId);
+    if (!client) return emptyResponse(403);
+    const text = await controlDeadline(request.text(), 3000, () => error('control_body_timeout', 'Setup request was incomplete.'));
+    if (new TextEncoder().encode(text).byteLength > 4096) return emptyResponse(413);
+    data = JSON.parse(text);
+    if (!validControlRequest(data) || !['hello', 'status', 'ensureShell'].includes(data.action)) return emptyResponse(400);
+  } catch (_) { return emptyResponse(503); }
+  const value = await dispatchControl(client, data, event);
+  return new Response(JSON.stringify(value), { status: 200, headers: {
+    'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff', 'Cross-Origin-Resource-Policy': 'same-origin',
+    'X-Eclipse-Control': '1', 'X-Eclipse-Worker-Actual': WORKER_BUILD
+  } });
 }
 
 
@@ -714,7 +766,9 @@ self.addEventListener('message', event => { event.waitUntil(handleMessage(event)
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (url.origin !== BASE_URL.origin) return;
-  if (url.pathname.startsWith(LISTENING_PREFIX)) {
+  if (url.pathname === new URL(CONTROL_URL).pathname) {
+    event.respondWith(handleControlFetch(event, url));
+  } else if (url.pathname.startsWith(LISTENING_PREFIX)) {
     event.respondWith(serveOriginal(event, url, true));
   } else if (url.pathname.startsWith(AUDIO_PREFIX)) {
     event.respondWith(serveOriginal(event, url));
