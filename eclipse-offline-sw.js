@@ -1,11 +1,12 @@
-/* ECLIPSE STK R88: retained archives, original bytes, and validated local playback.
+/* ECLIPSE STK R89: isolated archive reads, preserved originals, and local playback.
  * Deploy beside index.html as JavaScript over HTTPS. This worker never fetches
  * music, models, private data, arbitrary message URLs, or background updates.
  * The page owns consent, original verification, saving, and archive removal.
  */
 'use strict';
 
-const WORKER_BUILD = 'eclipse-stk-offline-r88-v1';
+const WORKER_BUILD = 'eclipse-stk-offline-r89-v1';
+const R88_WORKER_BUILD = 'eclipse-stk-offline-r88-v1';
 const R87_WORKER_BUILD = 'eclipse-stk-offline-r87-v1';
 const R86_WORKER_BUILD = 'eclipse-stk-offline-r86-v1';
 const R85_WORKER_BUILD = 'eclipse-stk-offline-r85-v1';
@@ -92,7 +93,7 @@ const archiveStorage=(()=>{
   ['eclipse-stk-shell-v1','index.html'],['eclipse-stk-archive-index-v1','__eclipse_archive_index__/'],
   ['eclipse-stk-public-catalog-v1','__eclipse_public_catalog__/']
  ]);
- const responseRecords=new WeakMap(),jobs=new Map(),nativePending=new Map(),nativeFailures=new Map();
+ const responseRecords=new WeakMap(),jobs=new Map(),nativePending=new Map(),nativeOpens=new Map(),nativeFailures=new Map();
  let dbTask=null,lastDatabaseError=null,lastLegacyError=null,writeActivity=null;
  function fault(name,code,message,extra={}){const e=new Error(message);Object.assign(e,{name,code,...extra});return e}
  function allowed(name,value){
@@ -214,14 +215,30 @@ const archiveStorage=(()=>{
   }
  }
  function legacyNames(name){return name===original?['eclipse-stk-originals-recovery-v1',original]:[name]}
- function legacyFault(name,action,error){const value=fault('ArchiveLegacyReadError','legacy_storage_unavailable','An older cache could not be read. Its files were kept; the independent archive can still accept new saves.',{legacyUnavailable:true,storageCache:name,storageAction:action,stage:'storage-legacy-'+action,nativeName:error?.name||'Error',nativeMessage:String(error?.message||'').slice(0,180)});lastLegacyError={cache:name,action,name:value.nativeName,message:value.nativeMessage,at:new Date().toISOString()};return value}
+ // R89: opening a cache can fail for the whole bucket, but one broken key
+ // must never poison the other 216 songs. Native calls cannot be aborted;
+ // retain one unresolved open per bucket and one unresolved read per key.
+ function legacyFault(name,action,error){const operation=error?.storageAction||action,value=fault('ArchiveLegacyReadError','legacy_storage_unavailable','An older cache could not be read. Its files were kept; the independent archive can still accept new saves.',{legacyUnavailable:true,storageCache:name,storageAction:operation,stage:'storage-legacy-'+operation,nativeName:error?.name||'Error',nativeMessage:String(error?.message||'').slice(0,180)});lastLegacyError={cache:name,action:operation,name:value.nativeName,message:value.nativeMessage,at:new Date().toISOString()};return value}
+ function legacyCooldown(slot){const failed=nativeFailures.get(slot);if(failed&&Date.now()-failed.at<10000)throw failed.error;if(failed)nativeFailures.delete(slot)}
+ async function legacyWait(record,slot,action){
+  let timer;try{return await Promise.race([record.task,new Promise((_,reject)=>{timer=setTimeout(()=>{record.abandoned=true;const error=fault('ArchiveStorageTimeout',action==='open'?'legacy_open_timeout':'legacy_read_timeout','An older cache did not answer its '+(action==='open'?'open':'read')+' check.',{storageAction:action});nativeFailures.set(slot,{at:Date.now(),error});reject(error)},8000)})])}catch(error){nativeFailures.set(slot,{at:Date.now(),error});throw error}finally{clearTimeout(timer)}
+ }
+ async function legacyOpen(name){
+  const slot=name+':open';legacyCooldown(slot);let record=nativeOpens.get(name);
+  if(record?.abandoned)throw fault('ArchiveStorageBusy','legacy_open_pending','The older cache is still opening. New independent saves can continue.',{storageAction:'open'});
+  if(!record){record={abandoned:false,task:null};record.task=Promise.resolve().then(()=>{if(!globalThis.caches)throw fault('ArchiveStorageError','legacy_unavailable','CacheStorage unavailable',{storageAction:'open'});return caches.open(name)}).catch(error=>{try{error.storageAction='open'}catch{}throw error});nativeOpens.set(name,record);record.task.then(()=>{nativeFailures.delete(slot)},()=>{}).finally(()=>{if(nativeOpens.get(name)===record)nativeOpens.delete(name)}).catch(()=>{})}
+  return legacyWait(record,slot,'open');
+ }
  async function legacyCall(name,action,url){
-  const slot=name+':'+action+':'+(url||''),failureSlot=name+':'+action,failed=nativeFailures.get(failureSlot);
-  if(failed&&Date.now()-failed.at<10000)throw failed.error;
-  let task=nativePending.get(slot);
-  if(task&&action==='match')throw fault('ArchiveStorageBusy','legacy_read_pending','The older cache is still reading this copy.');
-  if(!task){task=Promise.resolve().then(async()=>{if(!globalThis.caches)throw new Error('CacheStorage unavailable');const cache=await caches.open(name);return action==='keys'?cache.keys():action==='delete'?cache.delete(url):cache.match(url)});nativePending.set(slot,task);task.finally(()=>{if(nativePending.get(slot)===task)nativePending.delete(slot)}).catch(()=>{})}
-  let timer,timedOut=false;try{return await Promise.race([task,new Promise((_,reject)=>{timer=setTimeout(()=>{timedOut=true;task.then(value=>{try{value?.body?.cancel().catch(()=>{})}catch{}},()=>{});reject(fault('ArchiveStorageTimeout','legacy_read_timeout','An older cache did not answer its read check.'))},8000)})])}catch(error){nativeFailures.set(failureSlot,{at:Date.now(),error});throw error}finally{clearTimeout(timer)}
+  const slot=name+':'+action+':'+(url||'');legacyCooldown(slot);let record=nativePending.get(slot);
+  if(record&&(action==='match'||record.abandoned))throw fault('ArchiveStorageBusy','legacy_read_pending','The older cache is still reading this copy.',{storageAction:action});
+  if(!record){
+   const cache=await legacyOpen(name);
+   // Another caller may have reached the same key while its shared open ran.
+   record=nativePending.get(slot);if(record&&(action==='match'||record.abandoned))throw fault('ArchiveStorageBusy','legacy_read_pending','The older cache is still reading this copy.',{storageAction:action});
+   if(!record){record={abandoned:false,task:null};record.task=Promise.resolve().then(()=>action==='keys'?cache.keys():action==='delete'?cache.delete(url):cache.match(url));nativePending.set(slot,record);record.task.then(value=>{nativeFailures.delete(slot);if(record.abandoned)try{value?.body?.cancel().catch(()=>{})}catch{}},()=>{}).finally(()=>{if(nativePending.get(slot)===record)nativePending.delete(slot)}).catch(()=>{})}
+  }
+  return legacyWait(record,slot,action);
  }
  async function match(name,value){
   const url=allowed(name,value);let primaryError=null,errors=[];
@@ -240,7 +257,7 @@ const archiveStorage=(()=>{
   // This is reached only through the existing explicit per-song Remove action.
   // Delete every independent revision for this key, never other songs.
   await transaction(['files','chunks'],'readwrite',tx=>{tx.objectStore('files').delete(key);const request=tx.objectStore('chunks').index('file').openKeyCursor(IDBKeyRange.only(key));request.onsuccess=()=>{const c=request.result;if(c){tx.objectStore('chunks').delete(c.primaryKey);c.continue()}}});
-  for(const physical of legacyNames(name)){nativeFailures.delete(physical+':delete');try{await legacyCall(physical,'delete',url)}catch(error){throw legacyFault(physical,'delete',error)}}return true;
+  for(const physical of legacyNames(name)){nativeFailures.delete(physical+':delete:'+url);nativeFailures.delete(physical+':open');try{await legacyCall(physical,'delete',url)}catch(error){throw legacyFault(physical,'delete',error)}}return true;
  }
  const adapters=new Map();
  function open(name){if(!paths.has(name))return Promise.reject(new Error('Unknown archive bucket.'));if(!adapters.has(name))adapters.set(name,Object.freeze({match:value=>match(name,value),freshMatch:value=>freshMatch(name,value),recoveryMatch:value=>freshMatch(name,value),keys:()=>keys(name),put:(value,response,options)=>write(name,value,response,options),delete:value=>remove(name,value)}));return Promise.resolve(adapters.get(name))}
@@ -512,7 +529,7 @@ async function serveOriginal(event, url, listening = false) {
 function shellInfo(response) {
   // Keep a previously validated public snapshot usable until the new one is
   // committed. Upgrading this worker never deletes the old page or music.
-  if (!response || response.status !== 200 || ![WORKER_BUILD, R87_WORKER_BUILD, R86_WORKER_BUILD, R85_WORKER_BUILD, R84_WORKER_BUILD, R83_WORKER_BUILD, R82_WORKER_BUILD, R81_WORKER_BUILD, R80_WORKER_BUILD, R78_WORKER_BUILD, PRIOR_WORKER_BUILD, R76_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
+  if (!response || response.status !== 200 || ![WORKER_BUILD, R88_WORKER_BUILD, R87_WORKER_BUILD, R86_WORKER_BUILD, R85_WORKER_BUILD, R84_WORKER_BUILD, R83_WORKER_BUILD, R82_WORKER_BUILD, R81_WORKER_BUILD, R80_WORKER_BUILD, R78_WORKER_BUILD, PRIOR_WORKER_BUILD, R76_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
       response.headers.get('X-Eclipse-Shell-URL') !== SHELL_URL ||
       (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase() !== 'text/html') return null;
   const bytes = positiveSize(response.headers.get('Content-Length'), MAX_SHELL_BYTES);
@@ -767,6 +784,7 @@ async function networkFirstShell(request) {
 }
 
 const LEGACY_MESSAGE_PROFILES = Object.freeze({
+  'eclipse-stk-2026-11-07-r88-final-site-review': 'eclipse-stk-offline-r88-v1',
   'eclipse-stk-2026-11-07-r87-two-file-recovery': 'eclipse-stk-offline-r87-v1',
   'eclipse-stk-2026-11-07-r86-original-recovery': 'eclipse-stk-offline-r86-v1',
   'eclipse-stk-2026-11-06-r85-resumable-collection': 'eclipse-stk-offline-r85-v1',
