@@ -1,11 +1,12 @@
-/* ECLIPSE STK R84: retained archives, original bytes, and validated local playback.
+/* ECLIPSE STK R85: retained archives, original bytes, and validated local playback.
  * Deploy beside index.html as JavaScript over HTTPS. This worker never fetches
  * music, models, private data, arbitrary message URLs, or background updates.
  * The page owns consent, original verification, saving, and archive removal.
  */
 'use strict';
 
-const WORKER_BUILD = 'eclipse-stk-offline-r84-v1';
+const WORKER_BUILD = 'eclipse-stk-offline-r85-v1';
+const R84_WORKER_BUILD = 'eclipse-stk-offline-r84-v1';
 const R83_WORKER_BUILD = 'eclipse-stk-offline-r83-v1';
 const R82_WORKER_BUILD = 'eclipse-stk-offline-r82-v1';
 const R81_WORKER_BUILD = 'eclipse-stk-offline-r81-v1';
@@ -77,106 +78,178 @@ async function cancelBody(response, reason) {
 // A stalled native CacheStorage.match cannot be cancelled. Keep its slot until
 // it settles, discard a late body, and bound the request that is waiting for it.
 // Parallel ranges wait for a free slot instead of cloning a large audio body.
-// R83: new original writes use a separate store. The old originals and all
-// listening copies remain untouched. Both stores share the existing audio URL.
-// R84: independent, transactional block storage for new saves. Existing Cache
-// API audio is read in place; never clear/migrate a listener's legacy archive.
-const archiveBlockStore=(()=>{
- 'use strict';
- const DB='eclipse-stk-archive-blocks-v1',BLOCK=1024*1024,MAX=256*1024*1024;
- const allowed=new Set(['eclipse-stk-originals-v1','eclipse-stk-originals-recovery-v1','eclipse-stk-listening-v1','eclipse-stk-shell-v1','eclipse-stk-archive-index-v1','eclipse-stk-public-catalog-v1']);
- let connection=null,opening=null;
- const problems=[];
- function fail(code,text){const e=new Error(text);e.name='ArchiveDatabaseError';e.code=code;e.stage='database-storage';return e}
- function key(name,input){if(!allowed.has(name))throw fail('database_scope','Unknown archive store.');const url=new URL(typeof input==='string'?input:input.url,self.location.href);if(url.origin!==self.location.origin||url.username||url.password||url.search||url.hash)throw fail('database_scope','Invalid archive address.');return [name,url.href]}
- function diagnostic(name,action,error){problems.push({store:name,action,name:error?.name||'Error',message:String(error?.message||'').slice(0,180),time:new Date().toISOString()});if(problems.length>12)problems.shift()}
- async function db(){
-  if(connection)return connection;if(opening)return opening;
-  opening=new Promise((resolve,reject)=>{
-   if(!self.indexedDB){reject(fail('database_unsupported','This browser does not provide independent offline storage.'));return}
-   let done=false;const request=indexedDB.open(DB,1),timer=setTimeout(()=>{done=true;reject(fail('database_open_timeout','Independent saved storage did not open. Existing music was kept.'));},15000);
-   request.onupgradeneeded=()=>{const d=request.result;const rows=d.createObjectStore('entries',{keyPath:'key'});rows.createIndex('cache','cache');d.createObjectStore('blocks',{keyPath:['generation','index']});d.createObjectStore('generations',{keyPath:'id'})};
-   request.onerror=()=>{clearTimeout(timer);reject(request.error||fail('database_open','Saved storage could not open.'))};
-   request.onblocked=()=>{clearTimeout(timer);done=true;reject(fail('database_blocked','Another ECLIPSE tab is holding an older storage connection. Close that tab and retry.'))};
-   request.onsuccess=()=>{clearTimeout(timer);const d=request.result;if(done){d.close();return}connection=d;d.onversionchange=()=>{d.close();if(connection===d)connection=null};d.onclose=()=>{if(connection===d)connection=null};resolve(d)};
-  }).finally(()=>{opening=null});return opening;
- }
- async function transaction(stores,mode,work){
-  const d=await db();return new Promise((resolve,reject)=>{
-   let tx,result,request;try{tx=d.transaction(stores,mode);request=work(tx);if(request&&'onsuccess'in request)request.onsuccess=()=>{result=request.result}}catch(e){reject(e);return}
-   // No async work inside an active transaction: Safari may auto-commit it.
-   const timer=setTimeout(()=>{try{tx.abort()}catch{}reject(fail('database_transaction_timeout','Independent archive storage stopped responding. Existing committed files were kept.'));},20000);
-   tx.oncomplete=()=>{clearTimeout(timer);resolve(result)};tx.onabort=()=>{clearTimeout(timer);reject(tx.error||request?.error||fail('database_aborted','The archive write was interrupted; the previous saved copy was kept.'))};tx.onerror=()=>{};
-  });
- }
- const get=(store,k)=>transaction([store],'readonly',tx=>tx.objectStore(store).get(k));
- const digest=async bytes=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),v=>v.toString(16).padStart(2,'0')).join('');
- async function rows(name){key(name,self.location.href.split(/[?#]/)[0]);return transaction(['entries'],'readonly',tx=>tx.objectStore('entries').index('cache').getAll(name))}
- async function discard(generation){return transaction(['blocks','generations'],'readwrite',tx=>{tx.objectStore('blocks').delete(IDBKeyRange.bound([generation,0],[generation,Number.MAX_SAFE_INTEGER]));return tx.objectStore('generations').delete(generation)})}
- async function collect(){
-  // Reclaim only unpublished/retired generations older than a day. Never touch
-  // a published pointer, another active save, or any legacy Cache API entry.
-  const all=await transaction(['entries'],'readonly',tx=>tx.objectStore('entries').getAll());
-  const live=new Set(all.map(x=>x.generation));const generations=await transaction(['generations'],'readonly',tx=>tx.objectStore('generations').getAll());
-  for(const row of generations)if(!live.has(row.id)&&Date.now()-row.created>86400000)await discard(row.id);
- }
- let collected=false;
- async function put(name,input,response){
-  const k=key(name,input);if(!response||response.status!==200||response.redirected||response.headers.has('Content-Range')||!response.body)throw fail('database_response','Only complete responses can be archived.');
-  const headers=Array.from(response.headers),declared=Number(response.headers.get('Content-Length'));
-  if(!Number.isSafeInteger(declared)||declared<1||declared>MAX)throw fail('database_length','The complete file size must be known before saving.');
-  const generation=crypto.randomUUID?crypto.randomUUID():Array.from(crypto.getRandomValues(new Uint32Array(4)),v=>v.toString(16)).join('-');
-  await transaction(['generations'],'readwrite',tx=>tx.objectStore('generations').add({id:generation,key:k,created:Date.now()}));
-  const reader=response.body.getReader();let total=0,count=0,used=0,buffer=new Uint8Array(BLOCK),published=false;
-  const flush=async()=>{if(!used)return;const bytes=buffer.slice(0,used),sha256=await digest(bytes);await transaction(['blocks'],'readwrite',tx=>tx.objectStore('blocks').add({generation,index:count++,bytes,sha256}));used=0};
-  try{
-   while(true){const part=await reader.read();if(part.done)break;const data=part.value;if(!(data instanceof Uint8Array))throw fail('database_stream','The audio stream did not contain bytes.');total+=data.byteLength;if(total>declared||total>MAX)throw fail('database_length','The file exceeded its declared size.');for(let at=0;at<data.length;){const size=Math.min(BLOCK-used,data.length-at);buffer.set(data.subarray(at,at+size),used);at+=size;used+=size;if(used===BLOCK)await flush()}}
-   await flush();if(total!==declared)throw fail('database_truncated','The download ended before the complete file. The previous copy was kept.');
-   const entry={key:k,cache:name,url:k[1],headers,generation,count,bytes:total,created:Date.now()};
-   // Publish exactly once, after EVERY block transaction has committed.
-   await transaction(['entries'],'readwrite',tx=>tx.objectStore('entries').put(entry));published=true;
-   if(!collected){collected=true;collect().catch(()=>{})}
-  }catch(e){if(!published)await discard(generation).catch(()=>{});throw e}
-  finally{try{await reader.cancel()}catch{}try{reader.releaseLock()}catch{}}
- }
- async function match(name,input){
-  const entry=await get('entries',key(name,input));if(!entry)return undefined;
-  if(!Number.isSafeInteger(entry.bytes)||entry.bytes<1||entry.bytes>MAX||entry.count!==Math.ceil(entry.bytes/BLOCK))throw fail('database_metadata','The saved file metadata is inconsistent.');
-  let index=0,total=0,cancelled=false;
-  const stream=new ReadableStream({async pull(controller){
-   try{if(cancelled)return;if(index===entry.count){if(total!==entry.bytes)throw fail('database_incomplete','The saved file is incomplete.');controller.close();return}
-    const part=await get('blocks',[entry.generation,index++]);if(cancelled)return;
-    if(!part||!(part.bytes instanceof Uint8Array)||!part.bytes.length||part.bytes.length>BLOCK||await digest(part.bytes)!==part.sha256)throw fail('database_checksum','A saved audio block did not pass its checksum. The saved copy was not marked valid.');
-    total+=part.bytes.length;if(total>entry.bytes)throw fail('database_length','The saved file length changed.');if(!cancelled)controller.enqueue(part.bytes);
-   }catch(e){if(!cancelled)controller.error(e)}
-  },cancel(){cancelled=true}});
-  return new Response(stream,{status:200,headers:entry.headers});
- }
- async function remove(name,input){const k=key(name,input),entry=await get('entries',k);if(!entry)return false;await transaction(['entries'],'readwrite',tx=>tx.objectStore('entries').delete(k));await discard(entry.generation);return true}
- return Object.freeze({put,match,rows,remove,keys:async name=>(await rows(name)).map(row=>new Request(row.url)),has:async name=>(await rows(name)).length>0,diagnostic,snapshot:()=>({backend:'indexeddb-blocks-v1',database:DB,blockBytes:BLOCK,legacyFailures:problems.slice()})});
-})();
-
+// R84: independent, chunked archive storage. Old CacheStorage data is read-only
+// unless the listener explicitly removes a copy. No migration, reset or eviction.
 const archiveStorage=(()=>{
- // Cache API stays a read-only compatibility lane except user-requested deletes.
- // New page/index/catalog/audio writes are independent of that failing API.
- const optional=new Set(['eclipse-stk-shell-v1','eclipse-stk-archive-index-v1','eclipse-stk-public-catalog-v1']);
- const native=self.caches;
- async function match(name,url){let databaseError=null;try{const saved=await archiveBlockStore.match(name,url);if(saved)return saved}catch(e){databaseError=e}try{const legacy=await(await native.open(name)).match(url);if(legacy)return legacy;if(databaseError)throw databaseError;return undefined}catch(e){archiveBlockStore.diagnostic(name,'match',e);if(optional.has(name))return undefined;throw e}}
- async function keys(name){let local=[],legacyError=null;try{local=await archiveBlockStore.keys(name)}catch(e){legacyError=e}const all=new Map(local.map(r=>[r.url,r]));try{if(await native.has(name))for(const r of await(await native.open(name)).keys())if(!all.has(r.url))all.set(r.url,r)}catch(e){legacyError=e;archiveBlockStore.diagnostic(name,'keys',e)}const result=[...all.values()];Object.defineProperties(result,{legacyError:{value:legacyError},recoveryURLs:{value:new Set(local.map(r=>r.url))}});return result}
- async function open(name){return {match:url=>match(name,url),keys:()=>keys(name),put:(url,response)=>archiveBlockStore.put(name,url,response),recoveryMatch:url=>archiveBlockStore.match(name,url),async delete(url){const local=await archiveBlockStore.remove(name,url);const old=await(await native.open(name)).delete(url);return local||old}}}
- return Object.freeze({open,match:(url,options)=>match(options.cacheName,url),has:async name=>{await archiveBlockStore.rows(name);return true}});
+ 'use strict';
+ const DB='eclipse-stk-recovery-files-v1',SCHEMA=1,CHUNK=2*1024*1024,MAX=256*1024*1024,TIMEOUT=30000;
+ const base=new URL('./',globalThis.location.href),original='eclipse-stk-originals-v1';
+ const paths=new Map([
+  [original,'__eclipse_offline_audio__/'],['eclipse-stk-listening-v1','__eclipse_offline_listening__/'],
+  ['eclipse-stk-shell-v1','index.html'],['eclipse-stk-archive-index-v1','__eclipse_archive_index__/'],
+  ['eclipse-stk-public-catalog-v1','__eclipse_public_catalog__/']
+ ]);
+ const responseRecords=new WeakMap(),jobs=new Map(),nativePending=new Map(),nativeFailures=new Map();
+ let dbTask=null,lastDatabaseError=null,lastLegacyError=null,writeActivity=null;
+ function fault(name,code,message,extra={}){const e=new Error(message);Object.assign(e,{name,code,...extra});return e}
+ function allowed(name,value){
+  if(!paths.has(name))throw fault('ArchiveStorageError','storage_bucket','Unknown archive bucket.');
+  const url=new URL(typeof value==='string'?value:value.url,base),path=paths.get(name),expected=new URL(path,base);
+  if(url.origin!==base.origin||url.username||url.password||url.search||url.hash||(path.endsWith('/')?!url.pathname.startsWith(expected.pathname):url.href!==expected.href))throw fault('ArchiveStorageError','storage_key','Invalid archive location.');
+  return url.href;
+ }
+ const logical=(name,url)=>name+'\n'+url;
+ function note(error){lastDatabaseError={name:error?.name||'Error',code:error?.code||'',message:String(error?.message||'').slice(0,180),at:new Date().toISOString()};return error}
+ function openDB(){
+  if(dbTask)return dbTask;
+  const task=new Promise((resolve,reject)=>{
+   if(!globalThis.indexedDB){reject(fault('NotSupportedError','archive_database_unavailable','This browser does not provide the independent archive store.'));return}
+   let request,done=false;const timer=setTimeout(()=>finish(reject,fault('ArchiveDatabaseTimeout','archive_database_open_timeout','The independent archive did not open. Existing music was kept.')),TIMEOUT);
+   function finish(fn,value){if(done)return;done=true;clearTimeout(timer);fn(value)}
+   try{request=indexedDB.open(DB,SCHEMA)}catch(error){finish(reject,error);return}
+   request.onupgradeneeded=()=>{const db=request.result;if(!db.objectStoreNames.contains('files')){const s=db.createObjectStore('files',{keyPath:'key'});s.createIndex('bucket','bucket')}
+    if(!db.objectStoreNames.contains('chunks')){const s=db.createObjectStore('chunks',{keyPath:['generation','part']});s.createIndex('generation','generation');s.createIndex('file','file')}
+    if(!db.objectStoreNames.contains('uploads'))db.createObjectStore('uploads',{keyPath:'key'});};
+   request.onerror=()=>finish(reject,request.error||fault('ArchiveStorageError','archive_database_open','The independent archive could not open.'));
+   request.onblocked=()=>finish(reject,fault('ArchiveDatabaseBlocked','archive_database_blocked','Another ECLIPSE tab is holding a storage update. Close the other tabs and retry; saved music was kept.'));
+   request.onsuccess=()=>{const db=request.result;if(done){db.close();return}db.onversionchange=()=>{db.close();if(dbTask===task)dbTask=null};db.onclose=()=>{if(dbTask===task)dbTask=null};finish(resolve,db)};
+  });dbTask=task;task.catch(error=>{note(error);if(dbTask===task)dbTask=null});return task;
+ }
+ async function transaction(stores,mode,makeRequest){
+  const db=await openDB();return new Promise((resolve,reject)=>{
+   let tx,result,problem=null,done=false;
+   const finish=(fn,v)=>{if(done)return;done=true;clearTimeout(timer);fn(v)};
+   const timer=setTimeout(()=>{problem=fault('ArchiveDatabaseTimeout','archive_database_transaction_timeout','The independent archive operation timed out. No incomplete file was marked saved.');try{tx?.abort()}catch{}finish(reject,problem)},TIMEOUT);
+   try{tx=db.transaction(stores,mode)}catch(error){finish(reject,error);return}
+   tx.oncomplete=()=>finish(resolve,result);tx.onabort=()=>finish(reject,problem||tx.error||fault('AbortError','archive_database_aborted','The archive transaction was stopped.'));
+   tx.onerror=()=>{problem=tx.error||problem};
+   try{const req=makeRequest(tx);if(req){req.onsuccess=()=>{result=req.result};req.onerror=()=>{problem=req.error}}}catch(error){problem=error;try{tx.abort()}catch{}finish(reject,error)}
+  }).catch(error=>{note(error);throw error});
+ }
+ const getFile=(name,url)=>transaction(['files'],'readonly',tx=>tx.objectStore('files').get(logical(name,url)));
+ const listFiles=name=>transaction(['files'],'readonly',tx=>tx.objectStore('files').index('bucket').getAll(name));
+ const hash=async bytes=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(v=>v.toString(16).padStart(2,'0')).join('');
+ function manifest(row,name,url){
+  if(!row)return null;
+  if(row.version!==SCHEMA||row.key!==logical(name,url)||row.bucket!==name||row.url!==url||!/^r84-[a-f0-9-]{16,90}$/.test(row.generation||'')||row.chunkBytes!==CHUNK||!Number.isSafeInteger(row.size)||row.size<1||row.size>MAX||row.parts!==Math.ceil(row.size/CHUNK)||!Array.isArray(row.headers))throw fault('ArchiveIntegrityError','archive_manifest_invalid','The stored file record did not pass validation. Its bytes were kept.');
+  const headers=new Headers(row.headers);if(headers.get('Content-Length')!==String(row.size))throw fault('ArchiveIntegrityError','archive_manifest_size','The stored file length does not match its record.');return row;
+ }
+ function stream(row,first=0,last=row.size-1){
+  let part=Math.floor(first/CHUNK),cancelled=false;
+  return new ReadableStream({async pull(controller){
+   if(cancelled)return;
+   try{
+    if(part>=row.parts||part*CHUNK>last){controller.close();return}
+    const n=part++,chunk=await transaction(['chunks'],'readonly',tx=>tx.objectStore('chunks').get([row.generation,n]));if(cancelled)return;
+    const expected=Math.min(CHUNK,row.size-n*CHUNK);
+    if(!chunk||!(chunk.data instanceof ArrayBuffer)||chunk.data.byteLength!==expected||chunk.file!==row.key||await hash(chunk.data)!==chunk.sha256)throw fault('ArchiveIntegrityError','archive_chunk_invalid','A stored audio block could not be verified. Its saved bytes were kept; retry this copy.');
+    if(cancelled)return;const from=Math.max(0,first-n*CHUNK),to=Math.min(expected,last+1-n*CHUNK);controller.enqueue(new Uint8Array(chunk.data,from,to-from));
+    if(n*CHUNK+to>last)controller.close();
+   }catch(error){if(!cancelled)controller.error(error)}
+  },cancel(){cancelled=true}},{highWaterMark:0});
+ }
+ async function freshMatch(name,value){const url=allowed(name,value),row=manifest(await getFile(name,url),name,url);if(!row)return undefined;const headers=new Headers(row.headers);headers.set('X-Eclipse-Storage','indexeddb-chunked-v1');const response=new Response(stream(row),{status:200,headers});responseRecords.set(response,row);return response}
+ function range(response,first,last){const row=responseRecords.get(response);if(!row)return null;try{response.body?.cancel().catch(()=>{})}catch{}return stream(row,first,last)}
+ async function removeGeneration(generation){return transaction(['chunks'],'readwrite',tx=>{const request=tx.objectStore('chunks').index('generation').openKeyCursor(IDBKeyRange.only(generation));request.onsuccess=()=>{const cursor=request.result;if(cursor){tx.objectStore('chunks').delete(cursor.primaryKey);cursor.continue()}}})}
+ // A small staging journal makes a tab-close distinguishable from a finished
+ // file. Ownership is checked in the SAME transaction as every chunk/commit.
+ // Web Locks permit immediate reclamation after a tab closes. Without locks,
+ // an expired lease can be reclaimed; the old writer is fenced from publishing.
+ async function uploadTransaction(key,generation,stores,action,claim=false,locked=false){
+  let failure=null,previous=null;
+  try{await transaction(['uploads',...stores],'readwrite',tx=>{
+   const journal=tx.objectStore('uploads'),request=journal.get(key);
+   request.onsuccess=()=>{try{
+    const prior=request.result;previous=prior;
+    if(claim){if(prior&&prior.generation!==generation&&!locked&&Date.now()-prior.updatedAt<300000)throw fault('ArchiveWritePending','storage_write_pending','Another tab may still be saving this song. Close that tab, or retry after its save lease expires.');journal.put({key,generation,updatedAt:Date.now()});}
+    else {if(!prior||prior.generation!==generation)throw fault('ArchiveWriteSuperseded','storage_write_superseded','A newer save owns this copy. The interrupted write was not published.');journal.put({...prior,updatedAt:Date.now()});}
+    action?.(tx,journal);
+   }catch(error){failure=error;try{tx.abort()}catch{}}};
+  })}catch(error){throw failure||error}return previous;
+ }
+ async function releaseUpload(key,generation){
+  await transaction(['uploads'],'readwrite',tx=>{const store=tx.objectStore('uploads'),r=store.get(key);r.onsuccess=()=>{if(r.result?.generation===generation)store.delete(key)}});
+ }
+ async function write(name,value,response,options={}){
+  const url=allowed(name,value),key=logical(name,url),locks=globalThis.navigator?.locks;
+  if(locks?.request)return locks.request('eclipse-archive:'+DB+':'+key,{mode:'exclusive',ifAvailable:true},lock=>{
+   if(!lock)throw fault('ArchiveWritePending','storage_write_pending','Another tab is already saving this copy.');return writeOwned(name,url,response,true,options);
+  });
+  return writeOwned(name,url,response,false,options);
+ }
+ async function writeOwned(name,value,response,locked,{signal,onProgress}={}){
+  const stopped=()=>{if(signal?.aborted)throw new DOMException('Archive write stopped.','AbortError')};
+  // R85: a suspended source/cancel promise must not permanently own the write.
+  const bounded=(value,ms=TIMEOUT,abortable=true)=>new Promise((resolve,reject)=>{
+   let done=false,timer=null;const finish=(fn,v)=>{if(done)return;done=true;clearTimeout(timer);signal?.removeEventListener('abort',abort);fn(v)},abort=()=>finish(reject,new DOMException('Archive write stopped.','AbortError'));
+   timer=setTimeout(()=>finish(reject,fault('ArchiveStorageTimeout','archive_write_idle','Archive writing stopped making progress. No incomplete copy was published.')),ms);
+   if(abortable){signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort()}
+   Promise.resolve(value).then(v=>finish(resolve,v),e=>finish(reject,e));
+  });
+  stopped();
+  const url=allowed(name,value),key=logical(name,url);
+  if(jobs.has(key))throw fault('ArchiveWritePending','storage_write_pending','This copy is still being saved. A second write has not started.');
+  if(!response||response.status!==200||response.redirected||['opaque','opaqueredirect','error'].includes(response.type)||!response.body||response.headers.has('Content-Range')||response.headers.has('Content-Encoding'))throw fault('ArchiveStorageError','archive_response_invalid','Only a complete verified response may be archived.');
+  const length=Number(response.headers.get('Content-Length'));if(!Number.isSafeInteger(length)||length<1||length>MAX)throw fault('ArchiveStorageError','archive_length_invalid','The complete archive length is required.');
+  const generation='r84-'+(crypto.randomUUID?crypto.randomUUID():[...crypto.getRandomValues(new Uint8Array(24))].map(v=>v.toString(16).padStart(2,'0')).join(''));
+  const job={generation};jobs.set(key,job);
+  const reader=response.body.getReader();let total=0,part=0,used=0,buffer=new Uint8Array(CHUNK),committed=false;
+  const progress=(bytes,phase)=>{writeActivity={bucket:name,url,bytes,total:length,phase,at:Date.now()};try{onProgress?.({...writeActivity})}catch{}};
+  const flush=async()=>{stopped();const data=buffer.buffer.slice(0,used),sha256=await bounded(hash(data));stopped();await uploadTransaction(key,generation,['chunks'],tx=>tx.objectStore('chunks').put({generation,part,file:key,data,sha256}));stopped();part++;used=0;progress(Math.min(length,part*CHUNK),'writing')};
+  try{
+   const abandoned=await uploadTransaction(key,generation,[],null,true,locked);
+   if(abandoned&&abandoned.generation!==generation)await removeGeneration(abandoned.generation);
+   // Each await occurs BETWEEN transactions. Safari may auto-commit an idle
+   // transaction, so no transaction is held open across hashing/stream awaits.
+   while(true){stopped();const item=await bounded(reader.read());stopped();if(item.done)break;const bytes=item.value;if(!(bytes instanceof Uint8Array))throw fault('ArchiveStorageError','archive_stream_invalid','The download did not return bytes.');total+=bytes.length;if(total>length)throw fault('ArchiveIntegrityError','archive_length_invalid','The audio response exceeded its verified length.');let offset=0;while(offset<bytes.length){const amount=Math.min(CHUNK-used,bytes.length-offset);buffer.set(bytes.subarray(offset,offset+amount),used);used+=amount;offset+=amount;if(used===CHUNK)await flush()}}
+   if(total!==length)throw fault('ArchiveIntegrityError','archive_incomplete','The download ended early. No incomplete copy was marked saved.');if(used)await flush();
+   const row={key,bucket:name,url,version:SCHEMA,generation,size:total,parts:part,chunkBytes:CHUNK,headers:[...response.headers],committedAt:new Date().toISOString()};manifest(row,name,url);
+   stopped();await uploadTransaction(key,generation,['files'],(tx,journal)=>{tx.objectStore('files').put(row);journal.delete(key)});committed=true;progress(total,'readback');
+  }finally{
+   if(!committed){try{await bounded(reader.cancel(),2500,false)}catch{}try{await removeGeneration(generation)}catch{}try{await releaseUpload(key,generation)}catch{}}
+   try{reader.releaseLock()}catch{}if(jobs.get(key)===job)jobs.delete(key);
+  }
+ }
+ function legacyNames(name){return name===original?['eclipse-stk-originals-recovery-v1',original]:[name]}
+ function legacyFault(name,action,error){const value=fault('ArchiveLegacyReadError','legacy_storage_unavailable','An older cache could not be read. Its files were kept; the independent archive can still accept new saves.',{legacyUnavailable:true,storageCache:name,storageAction:action,stage:'storage-legacy-'+action,nativeName:error?.name||'Error',nativeMessage:String(error?.message||'').slice(0,180)});lastLegacyError={cache:name,action,name:value.nativeName,message:value.nativeMessage,at:new Date().toISOString()};return value}
+ async function legacyCall(name,action,url){
+  const slot=name+':'+action+':'+(url||''),failureSlot=name+':'+action,failed=nativeFailures.get(failureSlot);
+  if(failed&&Date.now()-failed.at<10000)throw failed.error;
+  let task=nativePending.get(slot);
+  if(task&&action==='match')throw fault('ArchiveStorageBusy','legacy_read_pending','The older cache is still reading this copy.');
+  if(!task){task=Promise.resolve().then(async()=>{if(!globalThis.caches)throw new Error('CacheStorage unavailable');const cache=await caches.open(name);return action==='keys'?cache.keys():action==='delete'?cache.delete(url):cache.match(url)});nativePending.set(slot,task);task.finally(()=>{if(nativePending.get(slot)===task)nativePending.delete(slot)}).catch(()=>{})}
+  let timer,timedOut=false;try{return await Promise.race([task,new Promise((_,reject)=>{timer=setTimeout(()=>{timedOut=true;task.then(value=>{try{value?.body?.cancel().catch(()=>{})}catch{}},()=>{});reject(fault('ArchiveStorageTimeout','legacy_read_timeout','An older cache did not answer its read check.'))},8000)})])}catch(error){nativeFailures.set(failureSlot,{at:Date.now(),error});throw error}finally{clearTimeout(timer)}
+ }
+ async function match(name,value){
+  const url=allowed(name,value);let primaryError=null,errors=[];
+  try{const fresh=await freshMatch(name,url);if(fresh)return fresh}catch(error){primaryError=error}
+  for(const physical of legacyNames(name)){try{const saved=await legacyCall(physical,'match',url);if(saved)return saved}catch(error){errors.push(legacyFault(physical,'match',error))}}
+  if(primaryError)throw primaryError;if(errors.length)throw errors[0];return undefined;
+ }
+ async function keys(name){
+  if(!paths.has(name))throw new Error('Unknown archive bucket.');const all=new Map(),verified=new Set(),errors=[];
+  try{for(const row of await listFiles(name)){const url=allowed(name,row.url);manifest(row,name,url);all.set(url,new Request(url));verified.add(url)}}catch(error){errors.push(error)}
+  for(const physical of legacyNames(name))try{for(const request of await legacyCall(physical,'keys')){try{const url=allowed(name,request.url);if(!all.has(url))all.set(url,new Request(url))}catch{}}}catch(error){errors.push(legacyFault(physical,'keys',error))}
+  const result=[...all.values()];Object.defineProperties(result,{legacyError:{value:errors[0]||null},recoveryURLs:{value:verified},storageErrors:{value:errors.map(e=>({name:e.name,code:e.code||'',cache:e.storageCache||DB}))}});return result;
+ }
+ async function remove(name,value){
+  const url=allowed(name,value),key=logical(name,url);if(jobs.has(key))throw fault('ArchiveWritePending','storage_write_pending','This file is still being saved.');
+  // This is reached only through the existing explicit per-song Remove action.
+  // Delete every independent revision for this key, never other songs.
+  await transaction(['files','chunks'],'readwrite',tx=>{tx.objectStore('files').delete(key);const request=tx.objectStore('chunks').index('file').openKeyCursor(IDBKeyRange.only(key));request.onsuccess=()=>{const c=request.result;if(c){tx.objectStore('chunks').delete(c.primaryKey);c.continue()}}});
+  for(const physical of legacyNames(name)){nativeFailures.delete(physical+':delete');try{await legacyCall(physical,'delete',url)}catch(error){throw legacyFault(physical,'delete',error)}}return true;
+ }
+ const adapters=new Map();
+ function open(name){if(!paths.has(name))return Promise.reject(new Error('Unknown archive bucket.'));if(!adapters.has(name))adapters.set(name,Object.freeze({match:value=>match(name,value),freshMatch:value=>freshMatch(name,value),recoveryMatch:value=>freshMatch(name,value),keys:()=>keys(name),put:(value,response,options)=>write(name,value,response,options),delete:value=>remove(name,value)}));return Promise.resolve(adapters.get(name))}
+ // A virtual bucket always exists. An unavailable legacy listing must never
+ // masquerade as an empty archive and erase its remembered metadata.
+ const has=name=>Promise.resolve(paths.has(name));
+ return Object.freeze({open,has,match,freshMatch,range,keys,write,resetLegacyChecks:()=>nativeFailures.clear(),snapshot:()=>({backend:'indexeddb-chunked-v1',database:DB,chunkBytes:CHUNK,lastDatabaseError,lastLegacyError,writeActivity:writeActivity?{...writeActivity}:null})});
 })();
 
 const originalStoreRecovery=(()=>{
- 'use strict';
- const legacy='eclipse-stk-originals-v1',recovery='eclipse-stk-originals-recovery-v1';let lastLegacyFailure=null;
- function failure(error,stage){const value=new Error('The older Cache API archive could not be read. Its bytes were kept; new originals use independent block storage.');Object.assign(value,{name:'ArchiveLegacyReadError',code:'legacy_original_storage_unavailable',legacyUnavailable:true,storageCache:legacy,storageAction:stage,nativeName:error?.name||'Error',nativeMessage:String(error?.message||'').slice(0,240)});lastLegacyFailure={cache:legacy,action:stage,name:value.nativeName,message:value.nativeMessage,time:new Date().toISOString()};return value}
- const recoveryMatch=url=>archiveBlockStore.match(recovery,url);
- async function match(url){let issue=null;try{const fresh=await recoveryMatch(url);if(fresh)return fresh}catch(e){issue=e} for(const name of [recovery,legacy]){try{if(await caches.has(name)){const response=await(await caches.open(name)).match(url);if(response)return response}}catch(e){issue=e;archiveBlockStore.diagnostic(name,'match',e)}}if(issue)throw failure(issue,'match');return undefined}
- async function keys(){let issue=null,local=[];try{local=await archiveBlockStore.keys(recovery)}catch(e){issue=e}const all=new Map(local.map(r=>[r.url,r]));for(const name of [recovery,legacy])try{if(await caches.has(name))for(const request of await(await caches.open(name)).keys())if(!all.has(request.url))all.set(request.url,request)}catch(e){issue=e;archiveBlockStore.diagnostic(name,'keys',e)}const result=[...all.values()];Object.defineProperties(result,{legacyError:{value:issue?failure(issue,'keys'):null},recoveryURLs:{value:new Set(local.map(r=>r.url))}});return result}
- async function remove(url){let removed=await archiveBlockStore.remove(recovery,url),issue=null;for(const name of [legacy,recovery])try{if(await caches.has(name))removed=await(await caches.open(name)).delete(url)||removed}catch(e){issue=e}if(issue)throw failure(issue,'delete');return removed}
- const adapter=Object.freeze({match,keys,put:(url,response)=>archiveBlockStore.put(recovery,url,response),delete:remove,recoveryMatch});
- return Object.freeze({legacy,recovery,open:async()=>adapter,has:async()=>true,match,recoveryMatch,snapshot:()=>({writeCache:recovery,legacyCache:legacy,lastLegacyFailure,...archiveBlockStore.snapshot()})});
+ const legacy='eclipse-stk-originals-v1',recovery='indexeddb-chunked-v1';
+ return Object.freeze({legacy,recovery,open:()=>archiveStorage.open(legacy),has:()=>archiveStorage.has(legacy),match:url=>archiveStorage.match(legacy,url),recoveryMatch:url=>archiveStorage.freshMatch(legacy,url),snapshot:()=>({writeCache:recovery,legacyCache:legacy,...archiveStorage.snapshot()})});
 })();
 
 async function cachedResponse(url, cacheName, deadline = Date.now() + CACHE_READ_TIMEOUT_MS) {
@@ -204,7 +277,7 @@ async function cachedResponse(url, cacheName, deadline = Date.now() + CACHE_READ
       reject(error('STORAGE_TIMEOUT', 'Saved storage did not respond.'));
       release();
     }, remaining);
-    Promise.resolve().then(() => (cacheName === ORIGINALS_CACHE ? originalStoreRecovery.open() : archiveStorage.open(cacheName)).then(cache => cache.match(url))).then(async response => {
+    Promise.resolve().then(() => archiveStorage.open(cacheName).then(cache => cache.match(url))).then(async response => {
       if (done) {
         // The request already timed out, so retain the slot until native cleanup
         // really settles. A bounded cleanup here would allow repeated late
@@ -426,13 +499,13 @@ async function serveOriginal(event, url, listening = false) {
   const last = range ? range.last : info.bytes - 1;
   headers.set('Content-Length', String(last - first + 1));
   if (range) headers.set('Content-Range', 'bytes ' + first + '-' + last + '/' + info.bytes);
-  return new Response(rangeStream(cached.body, first, last), { status: range ? 206 : 200, headers });
+  return new Response(archiveStorage.range(cached, first, last) || rangeStream(cached.body, first, last), { status: range ? 206 : 200, headers });
 }
 
 function shellInfo(response) {
   // Keep a previously validated public snapshot usable until the new one is
   // committed. Upgrading this worker never deletes the old page or music.
-  if (!response || response.status !== 200 || ![WORKER_BUILD, R83_WORKER_BUILD, R82_WORKER_BUILD, R81_WORKER_BUILD, R80_WORKER_BUILD, R78_WORKER_BUILD, PRIOR_WORKER_BUILD, R76_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
+  if (!response || response.status !== 200 || ![WORKER_BUILD, R84_WORKER_BUILD, R83_WORKER_BUILD, R82_WORKER_BUILD, R81_WORKER_BUILD, R80_WORKER_BUILD, R78_WORKER_BUILD, PRIOR_WORKER_BUILD, R76_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
       response.headers.get('X-Eclipse-Shell-URL') !== SHELL_URL ||
       (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase() !== 'text/html') return null;
   const bytes = positiveSize(response.headers.get('Content-Length'), MAX_SHELL_BYTES);
@@ -674,7 +747,6 @@ async function networkFirstShell(request) {
 }
 
 const LEGACY_MESSAGE_PROFILES = Object.freeze({
-  'eclipse-stk-2026-11-06-r83-original-batch-recovery': 'eclipse-stk-offline-r83-v1',
   'eclipse-stk-2026-11-06-r82-archive-route-repair': 'eclipse-stk-offline-r82-v1',
   'eclipse-stk-2026-11-06-r81-save-connection-repair': 'eclipse-stk-offline-r81-v1',
   'eclipse-stk-2026-11-06-r80-targeted-recovery': 'eclipse-stk-offline-r80-v1',
@@ -877,7 +949,7 @@ self.addEventListener('fetch', event => {
   if (url.pathname === new URL('__eclipse_offline_capabilities__', BASE_URL).pathname && !url.search && !url.hash) {
     // Public, read-only capability metadata. It does not open storage, expose
     // private state, or activate anything. A static-host 404 cannot pass it.
-    event.respondWith(event.request.method === 'GET' ? new Response(JSON.stringify({workerBuild:WORKER_BUILD,originalRecovery:originalStoreRecovery.recovery,storageBackend:'indexeddb-blocks-v1'}), {headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Cross-Origin-Resource-Policy':'same-origin','X-Eclipse-Worker-Actual':WORKER_BUILD}}) : emptyResponse(405));
+    event.respondWith(event.request.method === 'GET' ? new Response(JSON.stringify({workerBuild:WORKER_BUILD,originalRecovery:originalStoreRecovery.recovery,archiveBackend:archiveStorage.snapshot().backend}), {headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Cross-Origin-Resource-Policy':'same-origin','X-Eclipse-Worker-Actual':WORKER_BUILD}}) : emptyResponse(405));
   } else if (url.pathname === new URL(CONTROL_URL).pathname) {
     event.respondWith(handleControlFetch(event, url));
   } else if (url.pathname.startsWith(LISTENING_PREFIX)) {
