@@ -1,11 +1,12 @@
-/* ECLIPSE STK R89: isolated archive reads, preserved originals, and local playback.
+/* ECLIPSE STK R90: direct saves, compatible client lookup, and local playback.
  * Deploy beside index.html as JavaScript over HTTPS. This worker never fetches
  * music, models, private data, arbitrary message URLs, or background updates.
  * The page owns consent, original verification, saving, and archive removal.
  */
 'use strict';
 
-const WORKER_BUILD = 'eclipse-stk-offline-r89-v1';
+const WORKER_BUILD = 'eclipse-stk-offline-r90-v1';
+const R89_WORKER_BUILD = 'eclipse-stk-offline-r89-v1';
 const R88_WORKER_BUILD = 'eclipse-stk-offline-r88-v1';
 const R87_WORKER_BUILD = 'eclipse-stk-offline-r87-v1';
 const R86_WORKER_BUILD = 'eclipse-stk-offline-r86-v1';
@@ -264,7 +265,7 @@ const archiveStorage=(()=>{
  // A virtual bucket always exists. An unavailable legacy listing must never
  // masquerade as an empty archive and erase its remembered metadata.
  const has=name=>Promise.resolve(paths.has(name));
- return Object.freeze({open,has,match,freshMatch,range,keys,write,resetLegacyChecks:()=>nativeFailures.clear(),snapshot:()=>({backend:'indexeddb-chunked-v1',database:DB,chunkBytes:CHUNK,lastDatabaseError,lastLegacyError,writeActivity:writeActivity?{...writeActivity}:null})});
+ return Object.freeze({ready:()=>openDB().then(()=>true),open,has,match,freshMatch,range,keys,write,resetLegacyChecks:()=>nativeFailures.clear(),snapshot:()=>({backend:'indexeddb-chunked-v1',database:DB,chunkBytes:CHUNK,lastDatabaseError,lastLegacyError,writeActivity:writeActivity?{...writeActivity}:null})});
 })();
 
 const originalStoreRecovery=(()=>{
@@ -492,8 +493,9 @@ function rangeStream(body, first, last) {
 async function serveOriginal(event, url, listening = false) {
   const request = event.request;
   const key = archiveKey(url, listening ? LISTENING_PREFIX : AUDIO_PREFIX);
-  if (!key || request.mode === 'navigate') return emptyResponse(404);
-  try { if (!(await publicClient(event.clientId))) return emptyResponse(404); }
+  if (!key || request.mode === 'navigate') return emptyResponse(404, { 'X-Eclipse-Archive-Error': 'route-key' });
+  if (!event.clientId) return emptyResponse(404, { 'X-Eclipse-Archive-Error': 'client-unavailable' });
+  try { if (!(await publicClient(event.clientId))) return emptyResponse(404, { 'X-Eclipse-Archive-Error': 'client-unverified' }); }
   catch (_) { return emptyResponse(503, { 'X-Eclipse-Archive-Error': 'client-pending' }); }
   if (!['GET', 'HEAD'].includes(request.method)) return emptyResponse(405, { Allow: 'GET, HEAD' });
   let cached;
@@ -501,8 +503,9 @@ async function serveOriginal(event, url, listening = false) {
   catch (_) { return emptyResponse(503, { 'X-Eclipse-Archive-Error': 'storage-pending' }); }
   const info = listening ? listeningInfo(cached, key) : originalInfo(cached, key);
   if (!info || !cached.body) {
+    const reason = !cached ? 'entry-missing' : !info ? 'entry-invalid' : 'entry-body-unavailable';
     await cancelBody(cached, 'Invalid archive entry');
-    return emptyResponse(404);
+    return emptyResponse(404, { 'X-Eclipse-Archive-Error': reason });
   }
   const headers = listening ? listeningHeaders(cached, info) : originalHeaders(cached, info);
   // Range is defined for GET only. Without a strong If-Range validator, return
@@ -529,7 +532,7 @@ async function serveOriginal(event, url, listening = false) {
 function shellInfo(response) {
   // Keep a previously validated public snapshot usable until the new one is
   // committed. Upgrading this worker never deletes the old page or music.
-  if (!response || response.status !== 200 || ![WORKER_BUILD, R88_WORKER_BUILD, R87_WORKER_BUILD, R86_WORKER_BUILD, R85_WORKER_BUILD, R84_WORKER_BUILD, R83_WORKER_BUILD, R82_WORKER_BUILD, R81_WORKER_BUILD, R80_WORKER_BUILD, R78_WORKER_BUILD, PRIOR_WORKER_BUILD, R76_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
+  if (!response || response.status !== 200 || ![WORKER_BUILD, R89_WORKER_BUILD, R88_WORKER_BUILD, R87_WORKER_BUILD, R86_WORKER_BUILD, R85_WORKER_BUILD, R84_WORKER_BUILD, R83_WORKER_BUILD, R82_WORKER_BUILD, R81_WORKER_BUILD, R80_WORKER_BUILD, R78_WORKER_BUILD, PRIOR_WORKER_BUILD, R76_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
       response.headers.get('X-Eclipse-Shell-URL') !== SHELL_URL ||
       (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase() !== 'text/html') return null;
   const bytes = positiveSize(response.headers.get('Content-Length'), MAX_SHELL_BYTES);
@@ -784,6 +787,7 @@ async function networkFirstShell(request) {
 }
 
 const LEGACY_MESSAGE_PROFILES = Object.freeze({
+  'eclipse-stk-2026-11-07-r89-direct-source-recovery': 'eclipse-stk-offline-r89-v1',
   'eclipse-stk-2026-11-07-r88-final-site-review': 'eclipse-stk-offline-r88-v1',
   'eclipse-stk-2026-11-07-r87-two-file-recovery': 'eclipse-stk-offline-r87-v1',
   'eclipse-stk-2026-11-07-r86-original-recovery': 'eclipse-stk-offline-r86-v1',
@@ -833,27 +837,34 @@ async function validatedMessageClient(id) {
     pendingMessageClients.set(id, record);
     record.task.finally(() => { if (pendingMessageClients.get(id) === record) pendingMessageClients.delete(id); }).catch(() => {});
   }
-  // Both answers come from the browser's Clients API. A slow get() is hedged
-  // with an exact-id lookup, including not-yet-controlled public pages. Never
-  // authorize another tab, an event-supplied URL, or a private page. Explicit
-  // negative get() results win if they arrive before an alternative answer.
+  // Both answers come from the browser's Clients API. A slow or unavailable
+  // get() is hedged with an exact-id lookup of public windows. A returned
+  // non-public client still fails immediately. Missing lookup data alone is
+  // not proof that a matching, browser-verified public client is invalid.
   return new Promise((resolve, reject) => {
-    let done = false, listing = false;
+    let done = false, listing = false, getMissing = false, listFinished = false;
     const finish = (fn, value) => { if (done) return; done = true; clearTimeout(timer); clearTimeout(hedge); fn(value); };
     const list = () => {
-      if (done || listing || typeof self.clients.matchAll !== 'function') return;
+      if (done || listing) return;
+      if (typeof self.clients.matchAll !== 'function') { if (getMissing) finish(resolve, null); return; }
       listing = true;
       messageClientList().then(clients => {
-        if (done || !Array.isArray(clients)) return;
-        const exact = clients.find(client => client && client.id === id);
-        if (exact) finish(resolve, validMessageClient(exact, id));
-        // matchAll skips clients which are not execution-ready. An absent id
-        // does not invalidate a still-pending get(); wait for it or the bound.
-      }, () => {});
+        if (done) return;
+        listFinished = true;
+        const exact = Array.isArray(clients) ? clients.find(client => client && client.id === id) : null;
+        if (exact) { finish(resolve, validMessageClient(exact, id)); return; }
+        // An unavailable get() result can be recovered only by the same exact
+        // id and public window checks in matchAll(), never another tab.
+        if (getMissing) finish(resolve, null);
+      }, () => { listFinished = true; if (getMissing) finish(resolve, null); });
     };
     const timer = setTimeout(() => finish(reject, controlFailure('worker_client_pending', 'The browser is still confirming this page for offline setup. Your saved copies were kept; keep the page open and retry.', 'worker-client')), 4000);
     const hedge = setTimeout(list, 300);
-    record.task.then(client => finish(resolve, validMessageClient(client, id)), list);
+    record.task.then(client => {
+      if (client) { finish(resolve, validMessageClient(client, id)); return; }
+      getMissing = true;
+      if (listFinished) finish(resolve, null); else list();
+    }, list);
     // The RPC is bounded, but native calls cannot be cancelled. Their slots
     // remain owned until they settle so a retry cannot pile up native lookups.
   });
