@@ -1,11 +1,12 @@
-/* ECLIPSE STK R92: deliberate offline storage, bounded saves and music cleanup.
+/* ECLIPSE STK R94: AI recovery release; deployed R92 archive backend preserved.
  * Deploy beside index.html as JavaScript over HTTPS. This worker never fetches
  * music, models, private data, arbitrary message URLs, or background updates.
  * The page owns consent, original verification, saving, and archive removal.
  */
 'use strict';
 
-const WORKER_BUILD = 'eclipse-stk-offline-r92-v1';
+const WORKER_BUILD = 'eclipse-stk-offline-r94-v1';
+const R92_WORKER_BUILD = 'eclipse-stk-offline-r92-v1';
 const R91_WORKER_BUILD = 'eclipse-stk-offline-r91-v1';
 const R90_WORKER_BUILD = 'eclipse-stk-offline-r90-v1';
 const R89_WORKER_BUILD = 'eclipse-stk-offline-r89-v1';
@@ -720,7 +721,7 @@ async function serveOriginal(event, url, listening = false) {
 function shellInfo(response) {
   // Keep a previously validated public snapshot usable until the new one is
   // committed. Upgrading this worker never deletes the old page or music.
-  if (!response || response.status !== 200 || ![WORKER_BUILD, R91_WORKER_BUILD, R90_WORKER_BUILD, R89_WORKER_BUILD, R88_WORKER_BUILD, R87_WORKER_BUILD, R86_WORKER_BUILD, R85_WORKER_BUILD, R84_WORKER_BUILD, R83_WORKER_BUILD, R82_WORKER_BUILD, R81_WORKER_BUILD, R80_WORKER_BUILD, R78_WORKER_BUILD, PRIOR_WORKER_BUILD, R76_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
+  if (!response || response.status !== 200 || ![WORKER_BUILD, R92_WORKER_BUILD, R91_WORKER_BUILD, R90_WORKER_BUILD, R89_WORKER_BUILD, R88_WORKER_BUILD, R87_WORKER_BUILD, R86_WORKER_BUILD, R85_WORKER_BUILD, R84_WORKER_BUILD, R83_WORKER_BUILD, R82_WORKER_BUILD, R81_WORKER_BUILD, R80_WORKER_BUILD, R78_WORKER_BUILD, PRIOR_WORKER_BUILD, R76_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
       response.headers.get('X-Eclipse-Shell-URL') !== SHELL_URL ||
       (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase() !== 'text/html') return null;
   const bytes = positiveSize(response.headers.get('Content-Length'), MAX_SHELL_BYTES);
@@ -975,6 +976,7 @@ async function networkFirstShell(request) {
 }
 
 const LEGACY_MESSAGE_PROFILES = Object.freeze({
+  'eclipse-stk-2026-11-07-r92-phone-storage': 'eclipse-stk-offline-r92-v1',
   'eclipse-stk-2026-11-07-r91-transfer-recovery': 'eclipse-stk-offline-r91-v1',
   'eclipse-stk-2026-11-07-r90-direct-save': 'eclipse-stk-offline-r90-v1',
   'eclipse-stk-2026-11-07-r89-direct-source-recovery': 'eclipse-stk-offline-r89-v1',
