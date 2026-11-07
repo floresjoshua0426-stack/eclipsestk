@@ -1,11 +1,12 @@
-/* ECLIPSE STK R81: retained archives, original bytes, and validated local playback.
+/* ECLIPSE STK R82: retained archives, original bytes, and validated local playback.
  * Deploy beside index.html as JavaScript over HTTPS. This worker never fetches
  * music, models, private data, arbitrary message URLs, or background updates.
  * The page owns consent, original verification, saving, and archive removal.
  */
 'use strict';
 
-const WORKER_BUILD = 'eclipse-stk-offline-r81-v1';
+const WORKER_BUILD = 'eclipse-stk-offline-r82-v1';
+const R81_WORKER_BUILD = 'eclipse-stk-offline-r81-v1';
 const R80_WORKER_BUILD = 'eclipse-stk-offline-r80-v1';
 const R78_WORKER_BUILD = 'eclipse-stk-offline-r78-v1';
 const PRIOR_WORKER_BUILD = 'eclipse-stk-offline-r77-v1';
@@ -327,7 +328,7 @@ async function serveOriginal(event, url, listening = false) {
 function shellInfo(response) {
   // Keep a previously validated public snapshot usable until the new one is
   // committed. Upgrading this worker never deletes the old page or music.
-  if (!response || response.status !== 200 || ![WORKER_BUILD, R80_WORKER_BUILD, R78_WORKER_BUILD, PRIOR_WORKER_BUILD, R76_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
+  if (!response || response.status !== 200 || ![WORKER_BUILD, R81_WORKER_BUILD, R80_WORKER_BUILD, R78_WORKER_BUILD, PRIOR_WORKER_BUILD, R76_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
       response.headers.get('X-Eclipse-Shell-URL') !== SHELL_URL ||
       (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase() !== 'text/html') return null;
   const bytes = positiveSize(response.headers.get('Content-Length'), MAX_SHELL_BYTES);
@@ -569,6 +570,7 @@ async function networkFirstShell(request) {
 }
 
 const LEGACY_MESSAGE_PROFILES = Object.freeze({
+  'eclipse-stk-2026-11-06-r81-save-connection-repair': 'eclipse-stk-offline-r81-v1',
   'eclipse-stk-2026-11-06-r80-targeted-recovery': 'eclipse-stk-offline-r80-v1',
   'eclipse-stk-2026-11-06-r79-connection-progress-recovery': 'eclipse-stk-offline-r78-v1',
   'eclipse-stk-2026-11-06-r78-offline-collection': 'eclipse-stk-offline-r78-v1',
