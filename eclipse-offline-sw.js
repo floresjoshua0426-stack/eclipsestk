@@ -1,11 +1,12 @@
-/* ECLIPSE STK R78: retained archives, original bytes, and validated local playback.
+/* ECLIPSE STK R80: retained archives, original bytes, and validated local playback.
  * Deploy beside index.html as JavaScript over HTTPS. This worker never fetches
  * music, models, private data, arbitrary message URLs, or background updates.
  * The page owns consent, original verification, saving, and archive removal.
  */
 'use strict';
 
-const WORKER_BUILD = 'eclipse-stk-offline-r78-v1';
+const WORKER_BUILD = 'eclipse-stk-offline-r80-v1';
+const R78_WORKER_BUILD = 'eclipse-stk-offline-r78-v1';
 const PRIOR_WORKER_BUILD = 'eclipse-stk-offline-r77-v1';
 const R76_WORKER_BUILD = 'eclipse-stk-offline-r76-v1';
 const RETAINED_WORKER_BUILD = 'eclipse-stk-offline-r75-v1';
@@ -26,7 +27,7 @@ const MAX_SHELL_BYTES = 24 * 1024 * 1024;
 const SHELL_PREFIX_BYTES = 16 * 1024;
 const SHELL_TIMEOUT_MS = 45000;
 const NAVIGATION_TIMEOUT_MS = 8000;
-const CACHE_READ_TIMEOUT_MS = 8000;
+const CACHE_READ_TIMEOUT_MS = 30000;
 const PROTECTED_BASELINE = 'eclipse-stk-2026-09-23-r50-xion-michael-q5-motherbrain2-fightchat-xion4lock-friendmother-fidelity1-michael-trusted-survivor1-final';
 let shellTask = null;
 let shellStatusTask = null;
@@ -97,7 +98,7 @@ async function cachedResponse(url, cacheName, deadline = Date.now() + CACHE_READ
       reject(error('STORAGE_TIMEOUT', 'Saved storage did not respond.'));
       release();
     }, remaining);
-    Promise.resolve().then(() => caches.match(url, { cacheName })).then(async response => {
+    Promise.resolve().then(() => caches.open(cacheName).then(cache => cache.match(url))).then(async response => {
       if (done) {
         // The request already timed out, so retain the slot until native cleanup
         // really settles. A bounded cleanup here would allow repeated late
@@ -116,10 +117,7 @@ async function cachedResponse(url, cacheName, deadline = Date.now() + CACHE_READ
 
 async function publicClient(id) {
   if (typeof id !== 'string' || !id) return null;
-  try {
-    const client = await self.clients.get(id);
-    return client && client.type === 'window' && publicPath(new URL(client.url)) ? client : null;
-  } catch (_) { return null; }
+  return validatedMessageClient(id);
 }
 
 function emptyResponse(status, extraHeaders) {
@@ -291,11 +289,13 @@ function rangeStream(body, first, last) {
 async function serveOriginal(event, url, listening = false) {
   const request = event.request;
   const key = archiveKey(url, listening ? LISTENING_PREFIX : AUDIO_PREFIX);
-  if (!key || request.mode === 'navigate' || !(await publicClient(event.clientId))) return emptyResponse(404);
+  if (!key || request.mode === 'navigate') return emptyResponse(404);
+  try { if (!(await publicClient(event.clientId))) return emptyResponse(404); }
+  catch (_) { return emptyResponse(503, { 'X-Eclipse-Archive-Error': 'client-pending' }); }
   if (!['GET', 'HEAD'].includes(request.method)) return emptyResponse(405, { Allow: 'GET, HEAD' });
   let cached;
   try { cached = await cachedResponse(key.url, listening ? LISTENING_CACHE : ORIGINALS_CACHE); }
-  catch (_) { return emptyResponse(503); }
+  catch (_) { return emptyResponse(503, { 'X-Eclipse-Archive-Error': 'storage-pending' }); }
   const info = listening ? listeningInfo(cached, key) : originalInfo(cached, key);
   if (!info || !cached.body) {
     await cancelBody(cached, 'Invalid archive entry');
@@ -326,7 +326,7 @@ async function serveOriginal(event, url, listening = false) {
 function shellInfo(response) {
   // Keep a previously validated public snapshot usable until the new one is
   // committed. Upgrading this worker never deletes the old page or music.
-  if (!response || response.status !== 200 || ![WORKER_BUILD, PRIOR_WORKER_BUILD, R76_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
+  if (!response || response.status !== 200 || ![WORKER_BUILD, R78_WORKER_BUILD, PRIOR_WORKER_BUILD, R76_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
       response.headers.get('X-Eclipse-Shell-URL') !== SHELL_URL ||
       (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase() !== 'text/html') return null;
   const bytes = positiveSize(response.headers.get('Content-Length'), MAX_SHELL_BYTES);
@@ -568,6 +568,8 @@ async function networkFirstShell(request) {
 }
 
 const LEGACY_MESSAGE_PROFILES = Object.freeze({
+  'eclipse-stk-2026-11-06-r79-connection-progress-recovery': 'eclipse-stk-offline-r78-v1',
+  'eclipse-stk-2026-11-06-r78-offline-collection': 'eclipse-stk-offline-r78-v1',
   'eclipse-stk-2026-11-06-r77-offline-companion-recovery': 'eclipse-stk-offline-r77-v1',
   'eclipse-stk-2026-11-06-r76-archive-save-recovery': 'eclipse-stk-offline-r76-v1',
   'eclipse-stk-2026-11-06-r75-archive-index-repair': 'eclipse-stk-offline-r75-v1',
@@ -577,7 +579,7 @@ const LEGACY_MESSAGE_PROFILES = Object.freeze({
 });
 
 function messageIdentity(data) {
-  const profile = (data.action !== 'hello' || data.appBuild === 'eclipse-stk-2026-11-06-r77-offline-companion-recovery') && Object.hasOwn(LEGACY_MESSAGE_PROFILES, data.appBuild) ? LEGACY_MESSAGE_PROFILES[data.appBuild] : '';
+  const profile = Object.hasOwn(LEGACY_MESSAGE_PROFILES, data.appBuild) ? LEGACY_MESSAGE_PROFILES[data.appBuild] : '';
   return Object.assign({ workerBuild: profile || WORKER_BUILD, actualWorkerBuild: WORKER_BUILD }, profile ? { compatibilityFor: data.appBuild } : {});
 }
 
