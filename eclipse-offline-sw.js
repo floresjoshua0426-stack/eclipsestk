@@ -1,11 +1,15 @@
-/* ECLIPSE STK R95: original R91 offline behavior restored; R94 AI retained in the page.
+/* ECLIPSE STK R100: bounded local playback; R91 saves and R94 AI retained.
  * Deploy beside index.html as JavaScript over HTTPS. This worker never fetches
  * music, models, private data, arbitrary message URLs, or background updates.
  * The page owns consent, original verification, saving, and archive removal.
  */
 'use strict';
 
-const WORKER_BUILD = 'eclipse-stk-offline-r95-v1';
+const WORKER_BUILD = 'eclipse-stk-offline-r100-v1';
+const R99_WORKER_BUILD = 'eclipse-stk-offline-r99-v1';
+const R98_WORKER_BUILD = 'eclipse-stk-offline-r98-v1';
+const R97_WORKER_BUILD = 'eclipse-stk-offline-r97-v1';
+const R95_WORKER_BUILD = 'eclipse-stk-offline-r95-v1';
 const R94_WORKER_BUILD = 'eclipse-stk-offline-r94-v1';
 const R93_WORKER_BUILD = 'eclipse-stk-offline-r93-v1';
 const R92_WORKER_BUILD = 'eclipse-stk-offline-r92-v1';
@@ -160,6 +164,97 @@ const archiveStorage=(()=>{
  }
  async function freshMatch(name,value){const url=allowed(name,value),row=manifest(await getFile(name,url),name,url);if(!row)return undefined;const headers=new Headers(row.headers);headers.set('X-Eclipse-Storage','indexeddb-chunked-v1');const response=new Response(stream(row),{status:200,headers});responseRecords.set(response,row);return response}
  function range(response,first,last){const row=responseRecords.get(response);if(!row)return null;try{response.body?.cancel().catch(()=>{})}catch{}return stream(row,first,last)}
+
+ // Playback opens an existing database only. Aborting onupgradeneeded avoids
+ // creating a database or migrating stores during an offline read.
+ let playbackDBTask=null;
+ function playbackDB(){
+  if(playbackDBTask)return playbackDBTask;
+  const task=new Promise((resolve,reject)=>{
+   if(!globalThis.indexedDB){reject(fault('NotSupportedError','archive_database_unavailable','Saved IndexedDB storage is unavailable.'));return}
+   let request,done=false,missing=false;const finish=(fn,value)=>{if(done)return;done=true;clearTimeout(timer);fn(value)},timer=setTimeout(()=>finish(reject,fault('ArchiveDatabaseTimeout','archive_database_open_timeout','Saved storage did not open.')),TIMEOUT);
+   try{request=indexedDB.open(DB,SCHEMA)}catch(error){finish(reject,error);return}
+   request.onupgradeneeded=()=>{missing=true;try{request.transaction.abort()}catch{}};
+   request.onerror=()=>finish(reject,missing?fault('ArchiveStorageMissing','playback_database_missing','No independent saved database exists.'):request.error||fault('ArchiveStorageError','archive_database_open','Saved storage could not open.'));
+   request.onblocked=()=>finish(reject,fault('ArchiveDatabaseBlocked','archive_database_blocked','Another tab is holding a saved-storage update.'));
+   request.onsuccess=()=>{const db=request.result;if(done){db.close();return}db.onversionchange=()=>{db.close();if(playbackDBTask===task)playbackDBTask=null};db.onclose=()=>{if(playbackDBTask===task)playbackDBTask=null};finish(resolve,db)};
+  });playbackDBTask=task;task.catch(()=>{if(playbackDBTask===task)playbackDBTask=null});return task;
+ }
+ async function playbackRead(store,key){
+  const db=await playbackDB();return new Promise((resolve,reject)=>{
+   let tx,result,done=false,problem=null;const finish=(fn,value)=>{if(done)return;done=true;clearTimeout(timer);fn(value)},timer=setTimeout(()=>{problem=fault('ArchiveDatabaseTimeout','archive_database_transaction_timeout','Saved playback storage did not respond.');try{tx?.abort()}catch{}finish(reject,problem)},TIMEOUT);
+   try{tx=db.transaction([store],'readonly');const request=tx.objectStore(store).get(key);request.onsuccess=()=>{result=request.result};request.onerror=()=>{problem=request.error};tx.oncomplete=()=>finish(resolve,result);tx.onabort=()=>finish(reject,problem||tx.error||fault('AbortError','archive_database_aborted','Saved playback read stopped.'));tx.onerror=()=>{problem=tx.error||problem}}catch(error){try{tx?.abort()}catch{}finish(reject,error)}
+  });
+ }
+ // Playback keeps only three verified storage blocks, shared by overlapping
+ // native/PCM ranges. The original save/readback stream remains independent.
+ const playbackChunks=new Map(),PLAYBACK_CACHE_BYTES=3*CHUNK,PLAYBACK_PIECE=64*1024;
+ let playbackBytes=0,playbackTail=Promise.resolve(),playbackDigest=null;
+ function playbackAbort(){return new DOMException('Saved playback stopped.','AbortError')}
+ function playbackWait(task,signal,deadline){
+  return new Promise((resolve,reject)=>{
+   let done=false,timer=null;
+   const finish=(fn,value)=>{if(done)return;done=true;clearTimeout(timer);signal?.removeEventListener('abort',stop);fn(value)};
+   const stop=()=>finish(reject,playbackAbort());
+   const timeout=()=>finish(reject,fault('ArchiveStorageTimeout','playback_read_timeout','Saved audio stopped responding. Retry this same copy.'));
+   signal?.addEventListener('abort',stop,{once:true});
+   if(signal?.aborted)stop();else if(deadline<=Date.now())timeout();else timer=setTimeout(timeout,deadline-Date.now());
+   Promise.resolve(task).then(value=>finish(resolve,value),error=>finish(reject,error));
+  });
+ }
+ function playbackHash(data,signal,deadline){
+  if(signal?.aborted)return Promise.reject(playbackAbort());
+  if(deadline<=Date.now())return Promise.reject(fault('ArchiveStorageTimeout','playback_read_timeout','Saved audio stopped responding. Retry this same copy.'));
+  const task=hash(data),record={task};playbackDigest=record;
+  // WebCrypto itself cannot be cancelled. Retain its one native-work slot
+  // after caller cancellation/timeout; a late digest never publishes a block.
+  const release=()=>{if(playbackDigest===record)playbackDigest=null};task.then(release,release);
+  return playbackWait(task,signal,deadline);
+ }
+ function playbackRemember(key,data){
+  if(playbackChunks.has(key)){playbackBytes-=playbackChunks.get(key).byteLength;playbackChunks.delete(key)}
+  while(playbackBytes+data.byteLength>PLAYBACK_CACHE_BYTES&&playbackChunks.size){const oldest=playbackChunks.keys().next().value;playbackBytes-=playbackChunks.get(oldest).byteLength;playbackChunks.delete(oldest)}
+  playbackChunks.set(key,data);playbackBytes+=data.byteLength;return data;
+ }
+ function playbackChunk(row,part,stopped,signal){
+  const key=row.key+'\n'+row.generation+'\n'+part,deadline=Date.now()+TIMEOUT;
+  const cached=()=>{const data=playbackChunks.get(key);if(data){playbackChunks.delete(key);playbackChunks.set(key,data)}return data};
+  if(stopped())return Promise.reject(playbackAbort());
+  const found=cached();if(found)return Promise.resolve(found);
+  // Serial misses bound IndexedDB cloning and hashing to one block at a time.
+  // A cancelled track never starts a queued read or publishes late bytes.
+  const task=playbackTail.then(async()=>{
+   if(stopped())throw playbackAbort();const ready=cached();if(ready)return ready;
+   // A prior cancelled native hash may still own its bytes. Wait on that same
+   // slot within this request's deadline before reading or hashing another.
+   if(playbackDigest)await playbackWait(playbackDigest.task.then(()=>undefined,()=>undefined),signal,deadline);
+   if(stopped())throw playbackAbort();
+   if(deadline<=Date.now())throw fault('ArchiveStorageTimeout','playback_read_timeout','Saved audio stopped responding. Retry this same copy.');
+   const chunk=await playbackRead('chunks',[row.generation,part]);
+   if(stopped())throw playbackAbort();const expected=Math.min(CHUNK,row.size-part*CHUNK);
+   if(!chunk||!(chunk.data instanceof ArrayBuffer)||chunk.data.byteLength!==expected||chunk.file!==row.key||await playbackHash(chunk.data,signal,deadline)!==chunk.sha256)throw fault('ArchiveIntegrityError','archive_chunk_invalid','A stored audio block is missing or unreadable. Its saved bytes were kept.');
+   if(stopped())throw playbackAbort();return playbackRemember(key,chunk.data);
+  });
+  playbackTail=task.then(()=>undefined,()=>undefined);return task;
+ }
+ function playbackRange(response,first,last){
+  const row=responseRecords.get(response);if(!row||![original,'eclipse-stk-listening-v1'].includes(row.bucket))return null;
+  if(!Number.isSafeInteger(first)||!Number.isSafeInteger(last)||first<0||last<first||last>=row.size)throw fault('ArchiveStorageError','playback_range','Invalid saved playback range.');
+  try{response.body?.cancel().catch(()=>{})}catch{}
+  let offset=first,cancelled=false;const readController=new AbortController();
+  return new ReadableStream({async pull(controller){
+   if(cancelled)return;
+   try{
+    if(offset>last){controller.close();return}
+    const part=Math.floor(offset/CHUNK),data=await playbackChunk(row,part,()=>cancelled,readController.signal);if(cancelled)return;
+    const from=offset-part*CHUNK,to=Math.min(data.byteLength,last+1-part*CHUNK,from+PLAYBACK_PIECE);
+    // A tiny Safari probe must not retain a whole storage block, and consumers
+    // must not be able to mutate bytes retained in the verified block cache.
+    const piece=new Uint8Array(data.slice(from,to));offset+=piece.byteLength;controller.enqueue(piece);
+    if(offset>last)controller.close();
+   }catch(error){if(!cancelled)controller.error(error)}
+  },cancel(){cancelled=true;readController.abort()}},{highWaterMark:0});
+ }
  async function removeGeneration(generation){return transaction(['chunks'],'readwrite',tx=>{const request=tx.objectStore('chunks').index('generation').openKeyCursor(IDBKeyRange.only(generation));request.onsuccess=()=>{const cursor=request.result;if(cursor){tx.objectStore('chunks').delete(cursor.primaryKey);cursor.continue()}}})}
  // A small staging journal makes a tab-close distinguishable from a finished
  // file. Ownership is checked in the SAME transaction as every chunk/commit.
@@ -252,6 +347,25 @@ const archiveStorage=(()=>{
   for(const physical of legacyNames(name)){try{const saved=await legacyCall(physical,'match',url);if(saved)return saved}catch(error){errors.push(legacyFault(physical,'match',error))}}
   if(primaryError)throw primaryError;if(errors.length)throw errors[0];return undefined;
  }
+
+ // CacheStorage.match with a named bucket is a read-only lookup. Unlike
+ // caches.open it cannot create an empty legacy bucket while playing offline.
+ async function playbackLegacyMatch(name,url){
+  const slot=name+':playback:'+url;legacyCooldown(slot);let record=nativePending.get(slot);
+  if(record)throw fault('ArchiveStorageBusy','legacy_read_pending','The older cache is still reading this copy.',{storageAction:'match'});
+  record={abandoned:false,task:null};
+  record.task=Promise.resolve().then(()=>{if(!globalThis.caches?.match)throw fault('ArchiveStorageError','legacy_unavailable','CacheStorage unavailable',{storageAction:'match'});return caches.match(url,{cacheName:name})});
+  nativePending.set(slot,record);
+  record.task.then(value=>{nativeFailures.delete(slot);if(record.abandoned)try{value?.body?.cancel().catch(()=>{})}catch{}},()=>{}).finally(()=>{if(nativePending.get(slot)===record)nativePending.delete(slot)}).catch(()=>{});
+  return legacyWait(record,slot,'match');
+ }
+ async function playbackMatch(name,value){
+  const url=allowed(name,value);if(![original,'eclipse-stk-listening-v1'].includes(name))throw fault('ArchiveStorageError','playback_bucket','Invalid saved playback bucket.');
+  let primaryError=null,errors=[];
+  try{const row=manifest(await playbackRead('files',logical(name,url)),name,url);if(row){const headers=new Headers(row.headers);headers.set('X-Eclipse-Storage','indexeddb-chunked-v1');const response=new Response(stream(row),{status:200,headers});responseRecords.set(response,row);return response}}catch(error){if(error?.code!=='playback_database_missing')primaryError=error}
+  for(const physical of legacyNames(name)){try{const saved=await playbackLegacyMatch(physical,url);if(saved)return saved}catch(error){errors.push(legacyFault(physical,'match',error))}}
+  if(primaryError)throw primaryError;if(errors.length)throw errors[0];return undefined;
+ }
  async function keys(name){
   if(!paths.has(name))throw new Error('Unknown archive bucket.');const all=new Map(),verified=new Set(),errors=[];
   try{for(const row of await listFiles(name)){try{const url=allowed(name,row.url);all.set(url,new Request(url));manifest(row,name,url);verified.add(url)}catch(error){errors.push(error)}}}catch(error){errors.push(error)}
@@ -270,7 +384,7 @@ const archiveStorage=(()=>{
  // A virtual bucket always exists. An unavailable legacy listing must never
  // masquerade as an empty archive and erase its remembered metadata.
  const has=name=>Promise.resolve(paths.has(name));
- return Object.freeze({ready:()=>openDB().then(()=>true),open,has,match,freshMatch,range,keys,write,resetLegacyChecks:()=>nativeFailures.clear(),snapshot:()=>({backend:'indexeddb-chunked-v1',database:DB,chunkBytes:CHUNK,lastDatabaseError,lastLegacyError,writeActivity:writeActivity?{...writeActivity}:null})});
+ return Object.freeze({ready:()=>openDB().then(()=>true),open,has,match,freshMatch,range,playbackMatch,playbackRange,keys,write,resetLegacyChecks:()=>nativeFailures.clear(),snapshot:()=>({backend:'indexeddb-chunked-v1',database:DB,chunkBytes:CHUNK,lastDatabaseError,lastLegacyError,writeActivity:writeActivity?{...writeActivity}:null})});
 })();
 
 const originalStoreRecovery=(()=>{
@@ -303,7 +417,7 @@ async function cachedResponse(url, cacheName, deadline = Date.now() + CACHE_READ
       reject(error('STORAGE_TIMEOUT', 'Saved storage did not respond.'));
       release();
     }, remaining);
-    Promise.resolve().then(() => archiveStorage.open(cacheName).then(cache => cache.match(url))).then(async response => {
+    Promise.resolve().then(() => [ORIGINALS_CACHE, LISTENING_CACHE].includes(cacheName) ? archiveStorage.playbackMatch(cacheName, url) : archiveStorage.open(cacheName).then(cache => cache.match(url))).then(async response => {
       if (done) {
         // The request already timed out, so retain the slot until native cleanup
         // really settles. A bounded cleanup here would allow repeated late
@@ -531,13 +645,13 @@ async function serveOriginal(event, url, listening = false) {
   const last = range ? range.last : info.bytes - 1;
   headers.set('Content-Length', String(last - first + 1));
   if (range) headers.set('Content-Range', 'bytes ' + first + '-' + last + '/' + info.bytes);
-  return new Response(archiveStorage.range(cached, first, last) || rangeStream(cached.body, first, last), { status: range ? 206 : 200, headers });
+  return new Response(archiveStorage.playbackRange(cached, first, last) || rangeStream(cached.body, first, last), { status: range ? 206 : 200, headers });
 }
 
 function shellInfo(response) {
   // Keep a previously validated public snapshot usable until the new one is
   // committed. Upgrading this worker never deletes the old page or music.
-  if (!response || response.status !== 200 || ![WORKER_BUILD, R94_WORKER_BUILD, R93_WORKER_BUILD, R92_WORKER_BUILD, R91_WORKER_BUILD, R90_WORKER_BUILD, R89_WORKER_BUILD, R88_WORKER_BUILD, R87_WORKER_BUILD, R86_WORKER_BUILD, R85_WORKER_BUILD, R84_WORKER_BUILD, R83_WORKER_BUILD, R82_WORKER_BUILD, R81_WORKER_BUILD, R80_WORKER_BUILD, R78_WORKER_BUILD, PRIOR_WORKER_BUILD, R76_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
+  if (!response || response.status !== 200 || ![WORKER_BUILD, R99_WORKER_BUILD, R98_WORKER_BUILD, R97_WORKER_BUILD, R95_WORKER_BUILD, R94_WORKER_BUILD, R93_WORKER_BUILD, R92_WORKER_BUILD, R91_WORKER_BUILD, R90_WORKER_BUILD, R89_WORKER_BUILD, R88_WORKER_BUILD, R87_WORKER_BUILD, R86_WORKER_BUILD, R85_WORKER_BUILD, R84_WORKER_BUILD, R83_WORKER_BUILD, R82_WORKER_BUILD, R81_WORKER_BUILD, R80_WORKER_BUILD, R78_WORKER_BUILD, PRIOR_WORKER_BUILD, R76_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
       response.headers.get('X-Eclipse-Shell-URL') !== SHELL_URL ||
       (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase() !== 'text/html') return null;
   const bytes = positiveSize(response.headers.get('Content-Length'), MAX_SHELL_BYTES);
@@ -792,6 +906,10 @@ async function networkFirstShell(request) {
 }
 
 const LEGACY_MESSAGE_PROFILES = Object.freeze({
+  'eclipse-stk-2026-11-08-r99-playback-recovery': 'eclipse-stk-offline-r99-v1',
+  'eclipse-stk-2026-11-08-r98-playback-recovery': 'eclipse-stk-offline-r98-v1',
+  'eclipse-stk-2026-11-08-r97-playback-recovery': 'eclipse-stk-offline-r97-v1',
+  'eclipse-stk-2026-11-07-r95-r91-offline-restored': 'eclipse-stk-offline-r95-v1',
   'eclipse-stk-2026-11-07-r94-ai-recovery': 'eclipse-stk-offline-r94-v1',
   'eclipse-stk-2026-11-07-r93-original-controls': 'eclipse-stk-offline-r93-v1',
   'eclipse-stk-2026-11-07-r92-phone-storage': 'eclipse-stk-offline-r92-v1',
