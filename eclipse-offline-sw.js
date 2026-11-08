@@ -5,7 +5,8 @@
  */
 'use strict';
 
-const WORKER_BUILD = 'eclipse-stk-offline-r100-v1';
+const WORKER_BUILD = 'eclipse-stk-offline-r100-v2';
+const R100_WORKER_BUILD = 'eclipse-stk-offline-r100-v1';
 const R99_WORKER_BUILD = 'eclipse-stk-offline-r99-v1';
 const R98_WORKER_BUILD = 'eclipse-stk-offline-r98-v1';
 const R97_WORKER_BUILD = 'eclipse-stk-offline-r97-v1';
@@ -186,10 +187,10 @@ const archiveStorage=(()=>{
    try{tx=db.transaction([store],'readonly');const request=tx.objectStore(store).get(key);request.onsuccess=()=>{result=request.result};request.onerror=()=>{problem=request.error};tx.oncomplete=()=>finish(resolve,result);tx.onabort=()=>finish(reject,problem||tx.error||fault('AbortError','archive_database_aborted','Saved playback read stopped.'));tx.onerror=()=>{problem=tx.error||problem}}catch(error){try{tx?.abort()}catch{}finish(reject,error)}
   });
  }
- // Playback keeps only three verified storage blocks, shared by overlapping
+ // Playback keeps only three saved storage blocks, shared by overlapping
  // native/PCM ranges. The original save/readback stream remains independent.
  const playbackChunks=new Map(),PLAYBACK_CACHE_BYTES=3*CHUNK,PLAYBACK_PIECE=64*1024;
- let playbackBytes=0,playbackTail=Promise.resolve(),playbackDigest=null;
+ let playbackBytes=0,playbackTail=Promise.resolve();
  function playbackAbort(){return new DOMException('Saved playback stopped.','AbortError')}
  function playbackWait(task,signal,deadline){
   return new Promise((resolve,reject)=>{
@@ -202,15 +203,6 @@ const archiveStorage=(()=>{
    Promise.resolve(task).then(value=>finish(resolve,value),error=>finish(reject,error));
   });
  }
- function playbackHash(data,signal,deadline){
-  if(signal?.aborted)return Promise.reject(playbackAbort());
-  if(deadline<=Date.now())return Promise.reject(fault('ArchiveStorageTimeout','playback_read_timeout','Saved audio stopped responding. Retry this same copy.'));
-  const task=hash(data),record={task};playbackDigest=record;
-  // WebCrypto itself cannot be cancelled. Retain its one native-work slot
-  // after caller cancellation/timeout; a late digest never publishes a block.
-  const release=()=>{if(playbackDigest===record)playbackDigest=null};task.then(release,release);
-  return playbackWait(task,signal,deadline);
- }
  function playbackRemember(key,data){
   if(playbackChunks.has(key)){playbackBytes-=playbackChunks.get(key).byteLength;playbackChunks.delete(key)}
   while(playbackBytes+data.byteLength>PLAYBACK_CACHE_BYTES&&playbackChunks.size){const oldest=playbackChunks.keys().next().value;playbackBytes-=playbackChunks.get(oldest).byteLength;playbackChunks.delete(oldest)}
@@ -221,18 +213,17 @@ const archiveStorage=(()=>{
   const cached=()=>{const data=playbackChunks.get(key);if(data){playbackChunks.delete(key);playbackChunks.set(key,data)}return data};
   if(stopped())return Promise.reject(playbackAbort());
   const found=cached();if(found)return Promise.resolve(found);
-  // Serial misses bound IndexedDB cloning and hashing to one block at a time.
+  // Serial misses bound IndexedDB cloning to one saved block at a time.
   // A cancelled track never starts a queued read or publishes late bytes.
   const task=playbackTail.then(async()=>{
    if(stopped())throw playbackAbort();const ready=cached();if(ready)return ready;
-   // A prior cancelled native hash may still own its bytes. Wait on that same
-   // slot within this request's deadline before reading or hashing another.
-   if(playbackDigest)await playbackWait(playbackDigest.task.then(()=>undefined,()=>undefined),signal,deadline);
+   // Save/readback already verified this committed generation. Playback never
+   // waits for WebCrypto, a storage write, a full-file scan, or a worker hello.
    if(stopped())throw playbackAbort();
    if(deadline<=Date.now())throw fault('ArchiveStorageTimeout','playback_read_timeout','Saved audio stopped responding. Retry this same copy.');
    const chunk=await playbackRead('chunks',[row.generation,part]);
    if(stopped())throw playbackAbort();const expected=Math.min(CHUNK,row.size-part*CHUNK);
-   if(!chunk||!(chunk.data instanceof ArrayBuffer)||chunk.data.byteLength!==expected||chunk.file!==row.key||await playbackHash(chunk.data,signal,deadline)!==chunk.sha256)throw fault('ArchiveIntegrityError','archive_chunk_invalid','A stored audio block is missing or unreadable. Its saved bytes were kept.');
+   if(!chunk||!(chunk.data instanceof ArrayBuffer)||chunk.data.byteLength!==expected||chunk.file!==row.key)throw fault('ArchiveIntegrityError','archive_chunk_invalid','A stored audio block is missing or unreadable. Its saved bytes were kept.');
    if(stopped())throw playbackAbort();return playbackRemember(key,chunk.data);
   });
   playbackTail=task.then(()=>undefined,()=>undefined);return task;
@@ -249,7 +240,7 @@ const archiveStorage=(()=>{
     const part=Math.floor(offset/CHUNK),data=await playbackChunk(row,part,()=>cancelled,readController.signal);if(cancelled)return;
     const from=offset-part*CHUNK,to=Math.min(data.byteLength,last+1-part*CHUNK,from+PLAYBACK_PIECE);
     // A tiny Safari probe must not retain a whole storage block, and consumers
-    // must not be able to mutate bytes retained in the verified block cache.
+    // must not be able to mutate bytes retained in the saved block cache.
     const piece=new Uint8Array(data.slice(from,to));offset+=piece.byteLength;controller.enqueue(piece);
     if(offset>last)controller.close();
    }catch(error){if(!cancelled)controller.error(error)}
@@ -651,7 +642,7 @@ async function serveOriginal(event, url, listening = false) {
 function shellInfo(response) {
   // Keep a previously validated public snapshot usable until the new one is
   // committed. Upgrading this worker never deletes the old page or music.
-  if (!response || response.status !== 200 || ![WORKER_BUILD, R99_WORKER_BUILD, R98_WORKER_BUILD, R97_WORKER_BUILD, R95_WORKER_BUILD, R94_WORKER_BUILD, R93_WORKER_BUILD, R92_WORKER_BUILD, R91_WORKER_BUILD, R90_WORKER_BUILD, R89_WORKER_BUILD, R88_WORKER_BUILD, R87_WORKER_BUILD, R86_WORKER_BUILD, R85_WORKER_BUILD, R84_WORKER_BUILD, R83_WORKER_BUILD, R82_WORKER_BUILD, R81_WORKER_BUILD, R80_WORKER_BUILD, R78_WORKER_BUILD, PRIOR_WORKER_BUILD, R76_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
+  if (!response || response.status !== 200 || ![WORKER_BUILD, R100_WORKER_BUILD, R99_WORKER_BUILD, R98_WORKER_BUILD, R97_WORKER_BUILD, R95_WORKER_BUILD, R94_WORKER_BUILD, R93_WORKER_BUILD, R92_WORKER_BUILD, R91_WORKER_BUILD, R90_WORKER_BUILD, R89_WORKER_BUILD, R88_WORKER_BUILD, R87_WORKER_BUILD, R86_WORKER_BUILD, R85_WORKER_BUILD, R84_WORKER_BUILD, R83_WORKER_BUILD, R82_WORKER_BUILD, R81_WORKER_BUILD, R80_WORKER_BUILD, R78_WORKER_BUILD, PRIOR_WORKER_BUILD, R76_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
       response.headers.get('X-Eclipse-Shell-URL') !== SHELL_URL ||
       (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase() !== 'text/html') return null;
   const bytes = positiveSize(response.headers.get('Content-Length'), MAX_SHELL_BYTES);
@@ -906,6 +897,7 @@ async function networkFirstShell(request) {
 }
 
 const LEGACY_MESSAGE_PROFILES = Object.freeze({
+  'eclipse-stk-2026-11-08-r100-playback-recovery': R100_WORKER_BUILD,
   'eclipse-stk-2026-11-08-r99-playback-recovery': 'eclipse-stk-offline-r99-v1',
   'eclipse-stk-2026-11-08-r98-playback-recovery': 'eclipse-stk-offline-r98-v1',
   'eclipse-stk-2026-11-08-r97-playback-recovery': 'eclipse-stk-offline-r97-v1',
