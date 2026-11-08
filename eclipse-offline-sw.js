@@ -1,11 +1,13 @@
-/* ECLIPSE STK R94: AI recovery release; deployed R92 archive backend preserved.
+/* ECLIPSE STK R95: original R91 offline behavior restored; R94 AI retained in the page.
  * Deploy beside index.html as JavaScript over HTTPS. This worker never fetches
  * music, models, private data, arbitrary message URLs, or background updates.
  * The page owns consent, original verification, saving, and archive removal.
  */
 'use strict';
 
-const WORKER_BUILD = 'eclipse-stk-offline-r94-v1';
+const WORKER_BUILD = 'eclipse-stk-offline-r95-v1';
+const R94_WORKER_BUILD = 'eclipse-stk-offline-r94-v1';
+const R93_WORKER_BUILD = 'eclipse-stk-offline-r93-v1';
 const R92_WORKER_BUILD = 'eclipse-stk-offline-r92-v1';
 const R91_WORKER_BUILD = 'eclipse-stk-offline-r91-v1';
 const R90_WORKER_BUILD = 'eclipse-stk-offline-r90-v1';
@@ -136,60 +138,6 @@ const archiveStorage=(()=>{
  }
  const getFile=(name,url)=>transaction(['files'],'readonly',tx=>tx.objectStore('files').get(logical(name,url)));
  const listFiles=name=>transaction(['files'],'readonly',tx=>tx.objectStore('files').index('bucket').getAll(name));
-
- // R92: count chunk keys, including old and orphaned generations, without
- // loading audio ArrayBuffers. Rounded payload bytes are a conservative
- // estimate; browser bookkeeping, HTTP cache and other stores are separate.
- const audioBucket=name=>name===original||name==='eclipse-stk-listening-v1';
- const roundedBytes=bytes=>Math.ceil(bytes/CHUNK)*CHUNK;
- function spaceFailure(code,message,extra={}){return fault('OfflineSpaceError',code,message,{stage:'storage-space',...extra})}
- function checkedSpaceGuard(name,guard){
-  if(!audioBucket(name))return null;
-  if(!guard||guard.limitBytes===0)throw spaceFailure('offline_cloud_mode','Cloud streaming is selected. Choose an offline storage allowance before saving another music copy.');
-  const limitBytes=guard.limitBytes,outsideBytes=guard.outsideBytes??0,reserveBytes=guard.reserveBytes??0;
-  if(![500000000,1000000000,2000000000].includes(limitBytes)||![outsideBytes,reserveBytes].every(value=>Number.isSafeInteger(value)&&value>=0))throw spaceFailure('offline_space_unknown','The offline storage allowance could not be verified. Stream this song or choose the allowance again.');
-  return Object.freeze({limitBytes,outsideBytes,reserveBytes});
- }
- function usageRequests(tx,{excludeKey='',withAudio=false}={},done,failed){
-  const chunks=tx.objectStore('chunks'),journal=tx.objectStore('uploads');
-  let waiting=withAudio?6:2,chunkCount=0,audioChunkCount=0,currentAudioBytes=0,currentAudioFiles=0,uploads=[],stopped=false;
-  const finish=()=>{
-   if(stopped||--waiting)return;
-   try{
-    let reservedBytes=0,pendingUploads=0;
-    for(const row of uploads){
-     if(row?.key===excludeKey)continue;
-     // Earlier tabs did not record a length. Count their full per-file limit
-     // until that journal is explicitly reclaimed or released, even if old.
-     const reserved=Number.isSafeInteger(row?.reservedBytes)&&row.reservedBytes>=1&&row.reservedBytes<=MAX?row.reservedBytes:MAX;
-     reservedBytes+=roundedBytes(reserved);pendingUploads++;
-    }
-    const allocatedBytes=chunkCount*CHUNK,audioBytes=audioChunkCount*CHUNK;
-    if(![allocatedBytes,audioBytes,currentAudioBytes,reservedBytes,allocatedBytes+reservedBytes].every(Number.isSafeInteger))throw spaceFailure('offline_space_unknown','The saved storage size could not be counted reliably. No new music save was started.');
-    done(Object.freeze({allocatedBytes,reservedBytes,totalBytes:allocatedBytes+reservedBytes,audioBytes,currentAudioBytes,currentAudioFiles,chunkCount,audioChunkCount,pendingUploads,chunkBytes:CHUNK,estimate:true,includesLegacy:false,includesMetadataOverhead:false}));
-   }catch(error){stopped=true;failed(error)}
-  };
-  const request=(value,accept)=>{value.onsuccess=()=>{if(stopped)return;try{accept(value.result);finish()}catch(error){stopped=true;failed(error)}};value.onerror=()=>{if(!stopped){stopped=true;failed(value.error||spaceFailure('offline_space_unknown','The saved storage size could not be read.'))}}};
-  request(chunks.count(),value=>{chunkCount=value});
-  request(journal.getAll(),value=>{uploads=value});
-  if(withAudio)for(const name of [original,'eclipse-stk-listening-v1']){
-   const prefix=name+'\n';request(chunks.index('file').count(IDBKeyRange.bound(prefix,prefix+'\uffff')),value=>{audioChunkCount+=value});
-   // Current manifests represent logical copies. Old or orphaned generations
-   // must not be subtracted from remembered legacy bytes outside this store.
-   request(tx.objectStore('files').index('bucket').getAll(name),rows=>{
-    for(const row of rows){
-     let current=null;try{current=manifest(row,name,allowed(name,row.url))}catch{}
-     if(current){currentAudioBytes+=current.size;currentAudioFiles++}
-    }
-   });
-  }
- }
- async function spaceUsage(){
-  let result=null,failure=null;
-  try{await transaction(['chunks','uploads','files'],'readonly',tx=>usageRequests(tx,{withAudio:true},value=>{result=value},error=>{failure=error;try{tx.abort()}catch{}}))}catch(error){throw failure||error}
-  if(!result)throw spaceFailure('offline_space_unknown','The saved storage size did not finish. No new music save was started.');
-  return result;
- }
  const hash=async bytes=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(v=>v.toString(16).padStart(2,'0')).join('');
  function manifest(row,name,url){
   if(!row)return null;
@@ -217,165 +165,29 @@ const archiveStorage=(()=>{
  // file. Ownership is checked in the SAME transaction as every chunk/commit.
  // Web Locks permit immediate reclamation after a tab closes. Without locks,
  // an expired lease can be reclaimed; the old writer is fenced from publishing.
- async function uploadTransaction(key,generation,stores,action,claim=false,locked=false,spaceGuard=null,expectedLength=0){
+ async function uploadTransaction(key,generation,stores,action,claim=false,locked=false){
   let failure=null,previous=null;
-  const selected=[...new Set(['uploads',...stores,...(claim&&spaceGuard?['chunks']:[])])];
-  try{await transaction(selected,'readwrite',tx=>{
+  try{await transaction(['uploads',...stores],'readwrite',tx=>{
    const journal=tx.objectStore('uploads'),request=journal.get(key);
-   const stop=error=>{failure=error;try{tx.abort()}catch{}};
    request.onsuccess=()=>{try{
     const prior=request.result;previous=prior;
-    if(claim){
-     if(prior&&prior.generation!==generation&&!locked&&Date.now()-prior.updatedAt<300000)throw fault('ArchiveWritePending','storage_write_pending','Another tab may still be saving this song. Close that tab, or retry after its save lease expires.');
-     const reservedBytes=roundedBytes(expectedLength||MAX);
-     const own=()=>{journal.put({key,generation,updatedAt:Date.now(),reservedBytes});action?.(tx,journal)};
-     if(spaceGuard){
-      // Count and reserve in one readwrite transaction. Two tabs cannot both
-      // claim the same remaining allowance from stale page snapshots.
-      usageRequests(tx,{excludeKey:key},usage=>{
-       const projected=usage.allocatedBytes+usage.reservedBytes+reservedBytes+spaceGuard.outsideBytes+spaceGuard.reserveBytes;
-       if(!Number.isSafeInteger(projected)||projected>spaceGuard.limitBytes){stop(spaceFailure('offline_budget_reached','The chosen offline storage allowance is full. Stream this song or remove downloaded music before saving more.',{limitBytes:spaceGuard.limitBytes,projectedBytes:projected,allocatedBytes:usage.allocatedBytes,reservedBytes:usage.reservedBytes}));return}
-       try{own()}catch(error){stop(error)}
-      },stop);
-     }else own();
-    }else{
-     if(!prior||prior.generation!==generation)throw fault('ArchiveWriteSuperseded','storage_write_superseded','A newer save owns this copy. The interrupted write was not published.');
-     journal.put({...prior,updatedAt:Date.now()});action?.(tx,journal);
-    }
-   }catch(error){stop(error)}};
+    if(claim){if(prior&&prior.generation!==generation&&!locked&&Date.now()-prior.updatedAt<300000)throw fault('ArchiveWritePending','storage_write_pending','Another tab may still be saving this song. Close that tab, or retry after its save lease expires.');journal.put({key,generation,updatedAt:Date.now()});}
+    else {if(!prior||prior.generation!==generation)throw fault('ArchiveWriteSuperseded','storage_write_superseded','A newer save owns this copy. The interrupted write was not published.');journal.put({...prior,updatedAt:Date.now()});}
+    action?.(tx,journal);
+   }catch(error){failure=error;try{tx.abort()}catch{}}};
   })}catch(error){throw failure||error}return previous;
  }
  async function releaseUpload(key,generation){
   await transaction(['uploads'],'readwrite',tx=>{const store=tx.objectStore('uploads'),r=store.get(key);r.onsuccess=()=>{if(r.result?.generation===generation)store.delete(key)}});
  }
-  // R92: a shared lock prevents this release's writers from overlapping an
-  // explicit music cleanup. The per-copy journal still fences older writers.
-  const MUSIC_MAINTENANCE='eclipse-archive:'+DB+':music-maintenance';
-  const musicBucket=name=>name===original||name==='eclipse-stk-listening-v1';
-  function musicLock(mode,action,signal){
-   if(signal?.aborted)return Promise.reject(new DOMException('Music cleanup stopped.','AbortError'));
-   const locks=globalThis.navigator?.locks;
-   if(!locks?.request)return Promise.resolve().then(action);
-   if(mode==='exclusive')return new Promise((resolve,reject)=>{
-    // Native CacheStorage.delete cannot be cancelled. Report its bounded result
-    // to the UI, but keep the lock until every already-started delete settles.
-    locks.request(MUSIC_MAINTENANCE,{mode,ifAvailable:true},async lock=>{
-     if(!lock)throw fault('ArchiveWritePending','storage_write_pending','Another ECLIPSE tab is saving or removing music. Let it finish, then retry.');
-     try{if(signal?.aborted)throw new DOMException('Music cleanup stopped.','AbortError');resolve(await action())}catch(error){reject(error)}
-     finally{const pending=[...nativePending].filter(([key])=>key.endsWith(':clear')).map(([,record])=>record.task);if(pending.length)await Promise.allSettled(pending)}
-    }).catch(reject);
-   });
-   return locks.request(MUSIC_MAINTENANCE,{mode,ifAvailable:true},lock=>{
-    if(!lock)throw fault('ArchiveWritePending','storage_write_pending','Another ECLIPSE tab is saving or removing music. Let it finish, then retry.');
-    if(signal?.aborted)throw new DOMException('Music cleanup stopped.','AbortError');return action();
-   });
-  }
-  async function write(name,value,response,options={}){
-   const url=allowed(name,value),key=logical(name,url),locks=globalThis.navigator?.locks;
-   const run=()=>locks?.request?locks.request('eclipse-archive:'+DB+':'+key,{mode:'exclusive',ifAvailable:true},lock=>{
-    if(!lock)throw fault('ArchiveWritePending','storage_write_pending','Another tab is already saving this copy.');return writeOwned(name,url,response,true,options);
-   }):writeOwned(name,url,response,false,options);
-   return musicBucket(name)?musicLock('shared',run,options.signal):run();
-  }
-
-  async function removeIndependent(names,exactKey=null){
-   const belongs=key=>typeof key==='string'&&(exactKey?key===exactKey:names.some(name=>key.startsWith(name+'\n')));
-   let problem=null;const result={confirmed:false,records:0,chunks:0,knownBytes:0};
-   for(const key of jobs.keys())if(belongs(key))throw fault('ArchiveWritePending','storage_write_pending','A selected file is still being saved. Let that save finish before removing it.');
-   try{await transaction(['files','chunks','uploads'],'readwrite',tx=>{
-    // Journal inspection and deletion share one transaction. A current writer
-    // wins; expired writers lose their lease before any old chunks disappear.
-    const journal=tx.objectStore('uploads'),scan=journal.openCursor();
-    scan.onsuccess=()=>{
-     const cursor=scan.result;
-     if(cursor){
-      if(belongs(cursor.key)){
-       const age=Date.now()-Number(cursor.value?.updatedAt||0);
-       if(!Number.isFinite(age)||age<300000){problem=fault('ArchiveWritePending','storage_write_pending','Another tab may still be saving a selected file. Close or finish that save, then retry cleanup.');tx.abort();return}
-       journal.delete(cursor.key);
-      }
-      cursor.continue();return;
-     }
-     const files=tx.objectStore('files'),chunks=tx.objectStore('chunks');
-     const eraseChunks=range=>{
-      const request=chunks.index('file').openKeyCursor(range);
-      request.onsuccess=()=>{const row=request.result;if(row){chunks.delete(row.primaryKey);result.chunks++;row.continue()}};
-     };
-     if(exactKey){
-      const request=files.get(exactKey);request.onsuccess=()=>{const row=request.result;if(row){result.records++;if(Number.isSafeInteger(row.size)&&row.size>0)result.knownBytes+=row.size}files.delete(exactKey)};
-      eraseChunks(IDBKeyRange.only(exactKey));
-     }else for(const name of names){
-      const request=files.index('bucket').openCursor(IDBKeyRange.only(name));
-      request.onsuccess=()=>{const row=request.result;if(row){result.records++;if(Number.isSafeInteger(row.value.size)&&row.value.size>0)result.knownBytes+=row.value.size;files.delete(row.primaryKey);row.continue()}};
-      eraseChunks(IDBKeyRange.bound(name+'\n',name+'\n\uffff'));
-     }
-    };
-   })}catch(error){throw problem||error}
-   result.confirmed=true;return Object.freeze(result);
-  }
-  async function remove(name,value){
-   const url=allowed(name,value),key=logical(name,url),locks=globalThis.navigator?.locks;
-   const perform=async()=>{
-    const result=await removeIndependent([name],key);let removed=result.records>0||result.chunks>0;
-    for(const physical of legacyNames(name)){
-     nativeFailures.delete(physical+':delete:'+url);nativeFailures.delete(physical+':open');
-     try{removed=!!(await legacyCall(physical,'delete',url))||removed}catch(error){const failure=legacyFault(physical,'delete',error);failure.cleanupPartial=result.records>0||result.chunks>0;failure.independentRemoved=result.records;throw failure}
-    }
-    return removed;
-   };
-   const run=()=>locks?.request?locks.request('eclipse-archive:'+DB+':'+key,{mode:'exclusive',ifAvailable:true},lock=>{
-    if(!lock)throw fault('ArchiveWritePending','storage_write_pending','Another tab is already saving or removing this copy.');return perform();
-   }):perform();
-   return musicBucket(name)?musicLock('shared',run):run();
-  }
-  async function deleteMusicCache(name){
-   const allowedNames=['eclipse-stk-originals-v1','eclipse-stk-originals-recovery-v1','eclipse-stk-listening-v1'];
-   if(!allowedNames.includes(name))throw fault('ArchiveStorageError','cleanup_bucket','Cleanup is restricted to downloaded music.');
-   if(!globalThis.caches)return {bucket:name,confirmed:false,removed:false,code:'legacy_unavailable',message:'Safari did not expose its older music cache.'};
-   const slot=name+':clear';let record=nativePending.get(slot);
-   if(record)return {bucket:name,confirmed:false,removed:false,code:'legacy_delete_pending',message:'An earlier removal of this music cache is still finishing.'};
-   record={abandoned:false,task:null};
-   record.task=Promise.resolve().then(()=>caches.delete(name));nativePending.set(slot,record);
-   record.task.finally(()=>{if(nativePending.get(slot)===record)nativePending.delete(slot)}).catch(()=>{});
-   let timer;
-   try{
-    const removed=await Promise.race([record.task,new Promise((_,reject)=>{timer=setTimeout(()=>reject(fault('ArchiveStorageTimeout','legacy_delete_timeout','Safari did not confirm removal of an older music cache.')),8000)})]);
-    if(typeof removed!=='boolean')throw fault('ArchiveStorageError','legacy_delete_unconfirmed','Safari did not confirm the music-cache result.');
-    for(const key of nativeFailures.keys())if(key.startsWith(name+':'))nativeFailures.delete(key);
-    if(lastLegacyError?.cache===name)lastLegacyError=null;
-    return {bucket:name,confirmed:true,removed};
-   }catch(error){return {bucket:name,confirmed:false,removed:false,code:error?.code||'legacy_delete_failed',message:String(error?.message||'Safari could not remove an older music cache.').slice(0,240)}}
-   finally{clearTimeout(timer)}
-  }
-  async function clearMusic(kinds,{signal,onProgress}={}){
-   if(!Array.isArray(kinds)||!kinds.length||kinds.some(kind=>!['original','listening'].includes(kind)))throw fault('ArchiveStorageError','cleanup_kind','Choose downloaded originals, listening copies, or both.');
-   const selected=[...new Set(kinds)],names=selected.map(kind=>kind==='original'?original:'eclipse-stk-listening-v1');
-   const stopped=()=>{if(signal?.aborted)throw new DOMException('Music cleanup stopped.','AbortError')};
-   const progress=value=>{try{onProgress?.(Object.freeze(value))}catch{}};
-   return musicLock('exclusive',async()=>{
-    stopped();progress({stage:'removing-independent',kinds:selected});stopped();
-    let independent;
-    try{independent=await removeIndependent(names)}catch(error){
-     // Never remove an older cache while a selected write is still active.
-     if(error?.code==='storage_write_pending')throw error;
-     independent={confirmed:false,records:0,chunks:0,knownBytes:0,code:error?.code||'archive_delete_failed',message:String(error?.message||'Independent storage could not confirm removal.').slice(0,240)};
-    }
-    const formats=[];let cancelled=false;
-    for(const kind of selected){
-     const legacy=[];
-     for(const name of legacyNames(kind==='original'?original:'eclipse-stk-listening-v1')){
-      if(signal?.aborted){cancelled=true;legacy.push({bucket:name,confirmed:false,removed:false,code:'cleanup_stopped',message:'Cleanup stopped before this older music cache was removed.'});continue}
-      progress({stage:'removing-older',kind,bucket:name});
-      if(signal?.aborted){cancelled=true;legacy.push({bucket:name,confirmed:false,removed:false,code:'cleanup_stopped',message:'Cleanup stopped before this older music cache was removed.'});continue}
-      legacy.push(await deleteMusicCache(name));
-     }
-     formats.push(Object.freeze({kind,confirmed:independent.confirmed&&legacy.every(row=>row.confirmed),legacy:Object.freeze(legacy.map(row=>Object.freeze(row)))}));
-    }
-    return Object.freeze({confirmed:formats.every(row=>row.confirmed),cancelled,independent:Object.freeze(independent),formats:Object.freeze(formats)});
-   },signal);
-  }
-
- async function writeOwned(name,value,response,locked,{signal,onProgress,spaceGuard}={}){
+ async function write(name,value,response,options={}){
+  const url=allowed(name,value),key=logical(name,url),locks=globalThis.navigator?.locks;
+  if(locks?.request)return locks.request('eclipse-archive:'+DB+':'+key,{mode:'exclusive',ifAvailable:true},lock=>{
+   if(!lock)throw fault('ArchiveWritePending','storage_write_pending','Another tab is already saving this copy.');return writeOwned(name,url,response,true,options);
+  });
+  return writeOwned(name,url,response,false,options);
+ }
+ async function writeOwned(name,value,response,locked,{signal,onProgress}={}){
   const stopped=()=>{if(signal?.aborted)throw new DOMException('Archive write stopped.','AbortError')};
   // R85: a suspended source/cancel promise must not permanently own the write.
   const bounded=(value,ms=TIMEOUT,abortable=true)=>new Promise((resolve,reject)=>{
@@ -389,16 +201,14 @@ const archiveStorage=(()=>{
   if(jobs.has(key))throw fault('ArchiveWritePending','storage_write_pending','This copy is still being saved. A second write has not started.');
   if(!response||response.status!==200||response.redirected||['opaque','opaqueredirect','error'].includes(response.type)||!response.body||response.headers.has('Content-Range')||response.headers.has('Content-Encoding'))throw fault('ArchiveStorageError','archive_response_invalid','Only a complete verified response may be archived.');
   const length=Number(response.headers.get('Content-Length'));if(!Number.isSafeInteger(length)||length<1||length>MAX)throw fault('ArchiveStorageError','archive_length_invalid','The complete archive length is required.');
-  const guard=checkedSpaceGuard(name,spaceGuard);
   const generation='r84-'+(crypto.randomUUID?crypto.randomUUID():[...crypto.getRandomValues(new Uint8Array(24))].map(v=>v.toString(16).padStart(2,'0')).join(''));
   const job={generation};jobs.set(key,job);
-  let reader=null,total=0,part=0,used=0,buffer=null,committed=false;
+  const reader=response.body.getReader();let total=0,part=0,used=0,buffer=new Uint8Array(CHUNK),committed=false;
   const progress=(bytes,phase)=>{writeActivity={bucket:name,url,bytes,total:length,phase,at:Date.now()};try{onProgress?.({...writeActivity})}catch{}};
   const flush=async()=>{stopped();const data=buffer.buffer.slice(0,used),sha256=await bounded(hash(data));stopped();await uploadTransaction(key,generation,['chunks'],tx=>tx.objectStore('chunks').put({generation,part,file:key,data,sha256}));stopped();part++;used=0;progress(Math.min(length,part*CHUNK),'writing')};
   try{
-   const abandoned=await uploadTransaction(key,generation,[],null,true,locked,guard,length);
+   const abandoned=await uploadTransaction(key,generation,[],null,true,locked);
    if(abandoned&&abandoned.generation!==generation)await removeGeneration(abandoned.generation);
-   stopped();reader=response.body.getReader();buffer=new Uint8Array(CHUNK);
    // Each await occurs BETWEEN transactions. Safari may auto-commit an idle
    // transaction, so no transaction is held open across hashing/stream awaits.
    while(true){stopped();const item=await bounded(reader.read());stopped();if(item.done)break;const bytes=item.value;if(!(bytes instanceof Uint8Array))throw fault('ArchiveStorageError','archive_stream_invalid','The download did not return bytes.');total+=bytes.length;if(total>length)throw fault('ArchiveIntegrityError','archive_length_invalid','The audio response exceeded its verified length.');let offset=0;while(offset<bytes.length){const amount=Math.min(CHUNK-used,bytes.length-offset);buffer.set(bytes.subarray(offset,offset+amount),used);used+=amount;offset+=amount;if(used===CHUNK)await flush()}}
@@ -406,8 +216,8 @@ const archiveStorage=(()=>{
    const row={key,bucket:name,url,version:SCHEMA,generation,size:total,parts:part,chunkBytes:CHUNK,headers:[...response.headers],committedAt:new Date().toISOString()};manifest(row,name,url);
    stopped();await uploadTransaction(key,generation,['files'],(tx,journal)=>{tx.objectStore('files').put(row);journal.delete(key)});committed=true;progress(total,'readback');
   }finally{
-   if(!committed){try{await bounded(reader?reader.cancel():response.body.cancel(),2500,false)}catch{}try{await removeGeneration(generation)}catch{}try{await releaseUpload(key,generation)}catch{}}
-   try{reader?.releaseLock()}catch{}buffer=null;if(jobs.get(key)===job)jobs.delete(key);
+   if(!committed){try{await bounded(reader.cancel(),2500,false)}catch{}try{await removeGeneration(generation)}catch{}try{await releaseUpload(key,generation)}catch{}}
+   try{reader.releaseLock()}catch{}if(jobs.get(key)===job)jobs.delete(key);
   }
  }
  function legacyNames(name){return name===original?['eclipse-stk-originals-recovery-v1',original]:[name]}
@@ -448,13 +258,19 @@ const archiveStorage=(()=>{
   for(const physical of legacyNames(name))try{for(const request of await legacyCall(physical,'keys')){try{const url=allowed(name,request.url);if(!all.has(url))all.set(url,new Request(url))}catch{}}}catch(error){errors.push(legacyFault(physical,'keys',error))}
   const result=[...all.values()];Object.defineProperties(result,{legacyError:{value:errors[0]||null},recoveryURLs:{value:verified},storageErrors:{value:errors.map(e=>({name:e.name,code:e.code||'',cache:e.storageCache||DB}))}});return result;
  }
-
+ async function remove(name,value){
+  const url=allowed(name,value),key=logical(name,url);if(jobs.has(key))throw fault('ArchiveWritePending','storage_write_pending','This file is still being saved.');
+  // This is reached only through the existing explicit per-song Remove action.
+  // Delete every independent revision for this key, never other songs.
+  await transaction(['files','chunks'],'readwrite',tx=>{tx.objectStore('files').delete(key);const request=tx.objectStore('chunks').index('file').openKeyCursor(IDBKeyRange.only(key));request.onsuccess=()=>{const c=request.result;if(c){tx.objectStore('chunks').delete(c.primaryKey);c.continue()}}});
+  for(const physical of legacyNames(name)){nativeFailures.delete(physical+':delete:'+url);nativeFailures.delete(physical+':open');try{await legacyCall(physical,'delete',url)}catch(error){throw legacyFault(physical,'delete',error)}}return true;
+ }
  const adapters=new Map();
  function open(name){if(!paths.has(name))return Promise.reject(new Error('Unknown archive bucket.'));if(!adapters.has(name))adapters.set(name,Object.freeze({match:value=>match(name,value),freshMatch:value=>freshMatch(name,value),recoveryMatch:value=>freshMatch(name,value),keys:()=>keys(name),put:(value,response,options)=>write(name,value,response,options),delete:value=>remove(name,value)}));return Promise.resolve(adapters.get(name))}
  // A virtual bucket always exists. An unavailable legacy listing must never
  // masquerade as an empty archive and erase its remembered metadata.
  const has=name=>Promise.resolve(paths.has(name));
- return Object.freeze({ready:()=>openDB().then(()=>true),spaceUsage,open,has,match,freshMatch,range,keys,write,clearMusic,resetLegacyChecks:()=>nativeFailures.clear(),snapshot:()=>({backend:'indexeddb-chunked-v1',database:DB,chunkBytes:CHUNK,lastDatabaseError,lastLegacyError,writeActivity:writeActivity?{...writeActivity}:null})});
+ return Object.freeze({ready:()=>openDB().then(()=>true),open,has,match,freshMatch,range,keys,write,resetLegacyChecks:()=>nativeFailures.clear(),snapshot:()=>({backend:'indexeddb-chunked-v1',database:DB,chunkBytes:CHUNK,lastDatabaseError,lastLegacyError,writeActivity:writeActivity?{...writeActivity}:null})});
 })();
 
 const originalStoreRecovery=(()=>{
@@ -721,7 +537,7 @@ async function serveOriginal(event, url, listening = false) {
 function shellInfo(response) {
   // Keep a previously validated public snapshot usable until the new one is
   // committed. Upgrading this worker never deletes the old page or music.
-  if (!response || response.status !== 200 || ![WORKER_BUILD, R92_WORKER_BUILD, R91_WORKER_BUILD, R90_WORKER_BUILD, R89_WORKER_BUILD, R88_WORKER_BUILD, R87_WORKER_BUILD, R86_WORKER_BUILD, R85_WORKER_BUILD, R84_WORKER_BUILD, R83_WORKER_BUILD, R82_WORKER_BUILD, R81_WORKER_BUILD, R80_WORKER_BUILD, R78_WORKER_BUILD, PRIOR_WORKER_BUILD, R76_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
+  if (!response || response.status !== 200 || ![WORKER_BUILD, R94_WORKER_BUILD, R93_WORKER_BUILD, R92_WORKER_BUILD, R91_WORKER_BUILD, R90_WORKER_BUILD, R89_WORKER_BUILD, R88_WORKER_BUILD, R87_WORKER_BUILD, R86_WORKER_BUILD, R85_WORKER_BUILD, R84_WORKER_BUILD, R83_WORKER_BUILD, R82_WORKER_BUILD, R81_WORKER_BUILD, R80_WORKER_BUILD, R78_WORKER_BUILD, PRIOR_WORKER_BUILD, R76_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
       response.headers.get('X-Eclipse-Shell-URL') !== SHELL_URL ||
       (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase() !== 'text/html') return null;
   const bytes = positiveSize(response.headers.get('Content-Length'), MAX_SHELL_BYTES);
@@ -976,6 +792,8 @@ async function networkFirstShell(request) {
 }
 
 const LEGACY_MESSAGE_PROFILES = Object.freeze({
+  'eclipse-stk-2026-11-07-r94-ai-recovery': 'eclipse-stk-offline-r94-v1',
+  'eclipse-stk-2026-11-07-r93-original-controls': 'eclipse-stk-offline-r93-v1',
   'eclipse-stk-2026-11-07-r92-phone-storage': 'eclipse-stk-offline-r92-v1',
   'eclipse-stk-2026-11-07-r91-transfer-recovery': 'eclipse-stk-offline-r91-v1',
   'eclipse-stk-2026-11-07-r90-direct-save': 'eclipse-stk-offline-r90-v1',
