@@ -5,7 +5,8 @@
  */
 'use strict';
 
-const WORKER_BUILD = 'eclipse-stk-offline-r100-v2';
+const WORKER_BUILD = 'eclipse-stk-offline-r100-v3';
+const R100_HF1_WORKER_BUILD = 'eclipse-stk-offline-r100-v2';
 const R100_WORKER_BUILD = 'eclipse-stk-offline-r100-v1';
 const R99_WORKER_BUILD = 'eclipse-stk-offline-r99-v1';
 const R98_WORKER_BUILD = 'eclipse-stk-offline-r98-v1';
@@ -246,6 +247,29 @@ const archiveStorage=(()=>{
    }catch(error){if(!cancelled)controller.error(error)}
   },cancel(){cancelled=true;readController.abort()}},{highWaterMark:0});
  }
+ // R100 continuity: one read-only committed source for a playing song.
+ // No hash, quota estimate, write, worker handshake or whole-archive scan here.
+ async function playbackSource(name,value){
+  const url=allowed(name,value);
+  if(![original,'eclipse-stk-listening-v1'].includes(name))return null;
+  let row;try{row=manifest(await playbackRead('files',logical(name,url)),name,url)}catch(error){if(error?.code==='playback_database_missing')return null;throw error}
+  if(!row)return null;
+  const headers=new Headers(row.headers);headers.set('X-Eclipse-Storage','indexeddb-chunked-v1');
+  return Object.freeze({size:row.size,identity:row.generation,headers,
+   async read(first,end,signal){
+    if(signal?.aborted)throw playbackAbort();
+    if(!Number.isSafeInteger(first)||!Number.isSafeInteger(end)||first<0||end<=first||end>row.size||end-first>CHUNK+4096)throw fault('ArchiveStorageError','playback_range','Invalid saved sample position.');
+    const bytes=new Uint8Array(end-first);let at=first;
+    while(at<end){
+     const part=Math.floor(at/CHUNK),data=await playbackChunk(row,part,()=>signal?.aborted===true,signal);
+     if(signal?.aborted)throw playbackAbort();
+     const from=at-part*CHUNK,count=Math.min(end-at,data.byteLength-from);
+     bytes.set(new Uint8Array(data,from,count),at-first);at+=count;
+    }
+    return bytes;
+   }
+  });
+ }
  async function removeGeneration(generation){return transaction(['chunks'],'readwrite',tx=>{const request=tx.objectStore('chunks').index('generation').openKeyCursor(IDBKeyRange.only(generation));request.onsuccess=()=>{const cursor=request.result;if(cursor){tx.objectStore('chunks').delete(cursor.primaryKey);cursor.continue()}}})}
  // A small staging journal makes a tab-close distinguishable from a finished
  // file. Ownership is checked in the SAME transaction as every chunk/commit.
@@ -375,7 +399,7 @@ const archiveStorage=(()=>{
  // A virtual bucket always exists. An unavailable legacy listing must never
  // masquerade as an empty archive and erase its remembered metadata.
  const has=name=>Promise.resolve(paths.has(name));
- return Object.freeze({ready:()=>openDB().then(()=>true),open,has,match,freshMatch,range,playbackMatch,playbackRange,keys,write,resetLegacyChecks:()=>nativeFailures.clear(),snapshot:()=>({backend:'indexeddb-chunked-v1',database:DB,chunkBytes:CHUNK,lastDatabaseError,lastLegacyError,writeActivity:writeActivity?{...writeActivity}:null})});
+ return Object.freeze({ready:()=>openDB().then(()=>true),open,has,match,freshMatch,range,playbackMatch,playbackRange,playbackSource,keys,write,resetLegacyChecks:()=>nativeFailures.clear(),snapshot:()=>({backend:'indexeddb-chunked-v1',database:DB,chunkBytes:CHUNK,lastDatabaseError,lastLegacyError,writeActivity:writeActivity?{...writeActivity}:null})});
 })();
 
 const originalStoreRecovery=(()=>{
@@ -642,7 +666,7 @@ async function serveOriginal(event, url, listening = false) {
 function shellInfo(response) {
   // Keep a previously validated public snapshot usable until the new one is
   // committed. Upgrading this worker never deletes the old page or music.
-  if (!response || response.status !== 200 || ![WORKER_BUILD, R100_WORKER_BUILD, R99_WORKER_BUILD, R98_WORKER_BUILD, R97_WORKER_BUILD, R95_WORKER_BUILD, R94_WORKER_BUILD, R93_WORKER_BUILD, R92_WORKER_BUILD, R91_WORKER_BUILD, R90_WORKER_BUILD, R89_WORKER_BUILD, R88_WORKER_BUILD, R87_WORKER_BUILD, R86_WORKER_BUILD, R85_WORKER_BUILD, R84_WORKER_BUILD, R83_WORKER_BUILD, R82_WORKER_BUILD, R81_WORKER_BUILD, R80_WORKER_BUILD, R78_WORKER_BUILD, PRIOR_WORKER_BUILD, R76_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
+  if (!response || response.status !== 200 || ![WORKER_BUILD, R100_HF1_WORKER_BUILD, R100_WORKER_BUILD, R99_WORKER_BUILD, R98_WORKER_BUILD, R97_WORKER_BUILD, R95_WORKER_BUILD, R94_WORKER_BUILD, R93_WORKER_BUILD, R92_WORKER_BUILD, R91_WORKER_BUILD, R90_WORKER_BUILD, R89_WORKER_BUILD, R88_WORKER_BUILD, R87_WORKER_BUILD, R86_WORKER_BUILD, R85_WORKER_BUILD, R84_WORKER_BUILD, R83_WORKER_BUILD, R82_WORKER_BUILD, R81_WORKER_BUILD, R80_WORKER_BUILD, R78_WORKER_BUILD, PRIOR_WORKER_BUILD, R76_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
       response.headers.get('X-Eclipse-Shell-URL') !== SHELL_URL ||
       (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase() !== 'text/html') return null;
   const bytes = positiveSize(response.headers.get('Content-Length'), MAX_SHELL_BYTES);
@@ -830,7 +854,7 @@ async function savePublicShell(expectedBuild, refresh, epoch) {
   } catch (failure) {
     if (timedOut) throw error('shell_timeout', 'Saving the public page stopped making progress. Completed saved music was kept; reconnect and retry.');
     if (failure && failure.code) throw failure;
-    if (failure && failure.name === 'QuotaExceededError') throw error('storage_full', 'The browser could not store the public page. Free some space and try again.');
+    if (failure && failure.name === 'QuotaExceededError') throw error('storage_full', 'The browser refused to store the public page (QuotaExceededError). Existing saved music was kept. You can retry setup.');
     throw error('shell_unavailable', 'The public page could not be saved. Existing saved songs and the prior page were retained.');
   } finally {
     clearTimeout(timer);
@@ -897,6 +921,7 @@ async function networkFirstShell(request) {
 }
 
 const LEGACY_MESSAGE_PROFILES = Object.freeze({
+  'eclipse-stk-2026-11-08-r100-playback-hotfix-1': R100_HF1_WORKER_BUILD,
   'eclipse-stk-2026-11-08-r100-playback-recovery': R100_WORKER_BUILD,
   'eclipse-stk-2026-11-08-r99-playback-recovery': 'eclipse-stk-offline-r99-v1',
   'eclipse-stk-2026-11-08-r98-playback-recovery': 'eclipse-stk-offline-r98-v1',
