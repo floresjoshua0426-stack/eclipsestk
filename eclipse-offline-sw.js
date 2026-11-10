@@ -5,7 +5,8 @@
  */
 'use strict';
 
-const WORKER_BUILD = 'eclipse-stk-offline-r116-v4';
+const WORKER_BUILD = 'eclipse-stk-offline-r116-v5';
+const R116_V4_WORKER_BUILD = 'eclipse-stk-offline-r116-v4';
 const R116_V3_WORKER_BUILD = 'eclipse-stk-offline-r116-v3';
 const R116_V2_WORKER_BUILD = 'eclipse-stk-offline-r116-v2';
 const PREVIOUS_R116_WORKER_BUILD = 'eclipse-stk-offline-r116-v1';
@@ -904,7 +905,7 @@ async function clearShell() {
 
 async function networkFirstShell(request) {
   const saved = await savedShell();
-  if (!saved) return fetch(request);
+  if (!saved) return fetch(request, { cache: 'no-cache' });
   const controller = new AbortController();
   let timer;
   try {
@@ -914,7 +915,7 @@ async function networkFirstShell(request) {
         reject(error('navigation_timeout', 'The public page is unavailable online.'));
       }, NAVIGATION_TIMEOUT_MS);
     });
-    const response = await Promise.race([fetch(request, { signal: controller.signal }), deadline]);
+    const response = await Promise.race([fetch(request, { signal: controller.signal, cache: 'no-cache' }), deadline]);
     clearTimeout(timer); // Unused-cache cleanup must not abort the successful online response.
     if (response.status >= 500 && response.status <= 599) {
       await cancelBody(response, 'Using saved public page');
@@ -931,6 +932,7 @@ async function networkFirstShell(request) {
 }
 
 const LEGACY_MESSAGE_PROFILES = Object.freeze({
+  'eclipse-stk-2026-11-10-r116-final-navigation-restored': R116_V4_WORKER_BUILD,
   'eclipse-stk-2026-11-08-r116-final-lilly-light': R116_V3_WORKER_BUILD,
   'eclipse-stk-2026-11-08-r116-final-precision-storage': R116_V2_WORKER_BUILD,
   'eclipse-stk-2026-11-08-r116-final-airplane-storage-verification': PREVIOUS_R116_WORKER_BUILD,
@@ -1156,7 +1158,9 @@ async function handleControlFetch(event, url) {
 }
 
 
-// Installation is inert: no precache, imported code, forced update, or network.
+// R116 final bookmark refresh: activate the compatible worker when its verified bytes change.
+// No precache, storage deletion, network request or credential change occurs in install.
+self.addEventListener('install', event => { event.waitUntil(self.skipWaiting()); });
 self.addEventListener('activate', event => { event.waitUntil(self.clients.claim()); });
 self.addEventListener('message', event => { event.waitUntil(handleMessage(event)); });
 self.addEventListener('fetch', event => {
