@@ -5,7 +5,8 @@
  */
 'use strict';
 
-const WORKER_BUILD = 'eclipse-stk-offline-r116-v3';
+const WORKER_BUILD = 'eclipse-stk-offline-r116-v4';
+const R116_V3_WORKER_BUILD = 'eclipse-stk-offline-r116-v3';
 const R116_V2_WORKER_BUILD = 'eclipse-stk-offline-r116-v2';
 const PREVIOUS_R116_WORKER_BUILD = 'eclipse-stk-offline-r116-v1';
 const R106_WORKER_BUILD = 'eclipse-stk-offline-r106-v1';
@@ -930,6 +931,7 @@ async function networkFirstShell(request) {
 }
 
 const LEGACY_MESSAGE_PROFILES = Object.freeze({
+  'eclipse-stk-2026-11-08-r116-final-lilly-light': R116_V3_WORKER_BUILD,
   'eclipse-stk-2026-11-08-r116-final-precision-storage': R116_V2_WORKER_BUILD,
   'eclipse-stk-2026-11-08-r116-final-airplane-storage-verification': PREVIOUS_R116_WORKER_BUILD,
   'eclipse-stk-2026-11-08-r106-storage-guardian-verified': R106_WORKER_BUILD,
