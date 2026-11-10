@@ -5,7 +5,8 @@
  */
 'use strict';
 
-const WORKER_BUILD = 'eclipse-stk-offline-r116-v6';
+const WORKER_BUILD = 'eclipse-stk-offline-r116-v7';
+const R116_V6_WORKER_BUILD = 'eclipse-stk-offline-r116-v6';
 const R116_V5_WORKER_BUILD = 'eclipse-stk-offline-r116-v5';
 const R116_V4_WORKER_BUILD = 'eclipse-stk-offline-r116-v4';
 const R116_V3_WORKER_BUILD = 'eclipse-stk-offline-r116-v3';
@@ -678,7 +679,7 @@ async function serveOriginal(event, url, listening = false) {
 function shellInfo(response) {
   // Keep a previously validated public snapshot usable until the new one is
   // committed. Upgrading this worker never deletes the old page or music.
-  if (!response || response.status !== 200 || ![WORKER_BUILD, R116_V5_WORKER_BUILD, R116_V4_WORKER_BUILD, R116_V3_WORKER_BUILD, R116_V2_WORKER_BUILD, PREVIOUS_R116_WORKER_BUILD, R106_WORKER_BUILD, R105_WORKER_BUILD, R104_WORKER_BUILD, R103_WORKER_BUILD, R102_WORKER_BUILD, R101_WORKER_BUILD, R100_V3_WORKER_BUILD, R100_HF1_WORKER_BUILD, R100_WORKER_BUILD, R99_WORKER_BUILD, R98_WORKER_BUILD, R97_WORKER_BUILD, R95_WORKER_BUILD, R94_WORKER_BUILD, R93_WORKER_BUILD, R92_WORKER_BUILD, R91_WORKER_BUILD, R90_WORKER_BUILD, R89_WORKER_BUILD, R88_WORKER_BUILD, R87_WORKER_BUILD, R86_WORKER_BUILD, R85_WORKER_BUILD, R84_WORKER_BUILD, R83_WORKER_BUILD, R82_WORKER_BUILD, R81_WORKER_BUILD, R80_WORKER_BUILD, R78_WORKER_BUILD, PRIOR_WORKER_BUILD, R76_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
+  if (!response || response.status !== 200 || ![WORKER_BUILD, R116_V6_WORKER_BUILD, R116_V5_WORKER_BUILD, R116_V4_WORKER_BUILD, R116_V3_WORKER_BUILD, R116_V2_WORKER_BUILD, PREVIOUS_R116_WORKER_BUILD, R106_WORKER_BUILD, R105_WORKER_BUILD, R104_WORKER_BUILD, R103_WORKER_BUILD, R102_WORKER_BUILD, R101_WORKER_BUILD, R100_V3_WORKER_BUILD, R100_HF1_WORKER_BUILD, R100_WORKER_BUILD, R99_WORKER_BUILD, R98_WORKER_BUILD, R97_WORKER_BUILD, R95_WORKER_BUILD, R94_WORKER_BUILD, R93_WORKER_BUILD, R92_WORKER_BUILD, R91_WORKER_BUILD, R90_WORKER_BUILD, R89_WORKER_BUILD, R88_WORKER_BUILD, R87_WORKER_BUILD, R86_WORKER_BUILD, R85_WORKER_BUILD, R84_WORKER_BUILD, R83_WORKER_BUILD, R82_WORKER_BUILD, R81_WORKER_BUILD, R80_WORKER_BUILD, R78_WORKER_BUILD, PRIOR_WORKER_BUILD, R76_WORKER_BUILD, RETAINED_WORKER_BUILD, R74_WORKER_BUILD, R73_WORKER_BUILD, LEGACY_WORKER_BUILD].includes(response.headers.get('X-Eclipse-Shell-Worker')) ||
       response.headers.get('X-Eclipse-Shell-URL') !== SHELL_URL ||
       (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase() !== 'text/html') return null;
   const bytes = positiveSize(response.headers.get('Content-Length'), MAX_SHELL_BYTES);
@@ -933,6 +934,7 @@ async function networkFirstShell(request) {
 }
 
 const LEGACY_MESSAGE_PROFILES = Object.freeze({
+  'eclipse-stk-2026-11-10-r116-final-stable-media-bookmark': R116_V6_WORKER_BUILD,
   'eclipse-stk-2026-11-10-r116-final-ios-bookmark-controls': R116_V5_WORKER_BUILD,
   'eclipse-stk-2026-11-10-r116-final-navigation-restored': R116_V4_WORKER_BUILD,
   'eclipse-stk-2026-11-08-r116-final-lilly-light': R116_V3_WORKER_BUILD,
