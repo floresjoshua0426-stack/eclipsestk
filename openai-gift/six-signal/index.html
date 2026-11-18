@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#07070c">
+<meta name="referrer" content="no-referrer">
+<meta name="description" content="THE SIX SIGNAL: a six-check, self-contained browser engineering demonstration, a public gift from ECLIPSE STK and Saif Parchment. No accounts, no hidden AI, no pretense.">
+<title>THE SIX SIGNAL — ECLIPSE STK // Proof, Not Promises</title>
+<style>
+:root{color-scheme:dark;--bg:#06070c;--surface:#10121b;--surface2:#151826;--edge:#38394d;--text:#f6f3fc;--muted:#adb1c7;--gold:#ffc98c;--gold2:#f9a35e;--purple:#bba5ff;--cyan:#9ddaf9;--green:#a8e8bc;--red:#ffadb1;--focus:#9ddaf9}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;min-height:100vh;background:radial-gradient(circle at 80% 2%,#57387924,transparent 30%),radial-gradient(circle at 9% 12%,#c77a4420,transparent 31%),#07080d;color:var(--text);font:16px/1.55 system-ui,-apple-system,"Segoe UI",Arial,sans-serif;overflow-x:hidden}
+body:before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.32;background-image:radial-gradient(#e6d9ff65 .7px,transparent 1px);background-size:41px 41px;background-position:11px 17px}
+a{color:var(--gold);text-underline-offset:3px}
+button{font:inherit;cursor:pointer}
+button:disabled{opacity:.4;cursor:not-allowed}
+a:focus-visible,button:focus-visible{outline:3px solid var(--focus);outline-offset:4px}
+::selection{background:#bd96ff9b;color:white}
+.wrap{width:min(1190px,calc(100% - 44px));margin:auto}
+.skip{position:absolute;top:-100px;left:8px;background:#fff;color:#000;padding:12px;z-index:100}.skip:focus{top:8px}
+header{position:sticky;top:0;z-index:20;background:#080911e8;border-bottom:1px solid #6b59626a;backdrop-filter:blur(14px)}
+.head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:72px}
+.brand{font-weight:950;letter-spacing:.18em;white-space:nowrap;text-decoration:none;color:var(--text);font-size:15px;display:flex;gap:9px;align-items:center}
+.brand .bmark{display:grid;place-items:center;width:31px;height:31px;color:#100a12;border-radius:9px;background:linear-gradient(130deg,#ffe3a8,#bc9cff);font-size:19px;letter-spacing:0}
+.brand small{font-size:9px;font-weight:700;letter-spacing:.12em;color:var(--gold);margin-left:2px}
+nav{display:flex;gap:22px;align-items:center}
+nav a{color:#e5e4f0;text-decoration:none;font-size:12px;letter-spacing:.1em;font-weight:850}
+nav a:hover{color:var(--gold)}
+.chapter{color:var(--gold);font-size:11px;text-transform:uppercase;letter-spacing:.24em;font-weight:900}
+.hero{display:grid;grid-template-columns:minmax(0,1.16fr) minmax(350px,.84fr);align-items:center;gap:34px;min-height:580px;padding:76px 0 58px}
+h1{font-size:clamp(66px,8vw,124px);line-height:.89;letter-spacing:-.085em;margin:23px 0 24px;font-weight:970}
+h1 em{font-style:normal;background:linear-gradient(110deg,#fff4d9 0,#ffbf7c 47%,#bb9fff 92%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero .lede{color:#dedbea;max-width:680px;font-size:clamp(17px,2vw,21px);line-height:1.7}
+.hero .fine{max-width:620px;color:var(--muted);font-size:12px;line-height:1.85}
+.actionrow{display:flex;flex-wrap:wrap;gap:12px;margin:28px 0 21px}
+.btn{border:1px solid #ffce9a;border-radius:999px;background:linear-gradient(115deg,#ffdf9c,#ffad68);padding:13px 21px;box-shadow:0 8px 25px #ffbd7734;color:#1d1021;text-decoration:none;font-weight:900;display:inline-flex;align-items:center;justify-content:center;gap:8px;font-size:14px;min-height:48px}
+.btn:hover{filter:brightness(1.06)}
+.btn.ghost{background:#1b1b2bd9;border-color:#59566c;color:#e9e5ff;box-shadow:none}
+.btn.faint{background:#101223;border-color:#484658;color:#e6def7;box-shadow:none}
+.btn.small{font-size:12px;padding:9px 16px;min-height:39px}
+.liveflag{display:inline-flex;align-items:center;gap:8px;border:1px solid #70534c;background:#201a20;border-radius:999px;padding:7px 11px;color:#ead9cf;font-size:10px;font-weight:850;letter-spacing:.08em}
+.liveflag:before{content:"";width:6px;height:6px;border-radius:50%;background:#a7f2bf;box-shadow:0 0 10px #81e4a2}
+.stage{position:relative;display:grid;place-items:center;min-height:458px;aspect-ratio:1/1;isolation:isolate;border:1px solid #75607680;border-radius:30px;overflow:hidden;background:radial-gradient(circle at 52% 39%,#a674f633,transparent 43%),radial-gradient(circle at 32% 87%,#eb963324,transparent 52%),linear-gradient(155deg,#171426,#0a0e19 74%);box-shadow:inset 0 0 85px #f4a46409,0 30px 80px #0007}
+.stage:before{content:"";position:absolute;width:66%;aspect-ratio:1;border:1px solid #efd1b73e;border-radius:50%;transform:rotateX(55deg) rotate(-29deg);box-shadow:0 0 65px #b993e539}
+.stage:after{content:"";position:absolute;width:78%;aspect-ratio:1;border:1px solid #b4a8ff54;border-radius:50%;transform:rotateX(63deg) rotate(55deg)}
+.halo{position:absolute;inset:18%;border-radius:50%;border:1px solid #f8d39d55;box-shadow:inset 0 0 42px #e4a6df1c,0 0 75px #a989ed3b;animation:spin 18s linear infinite}
+.halo:before,.halo:after{content:"";position:absolute;width:8px;height:8px;background:#ffdda8;box-shadow:0 0 20px #ffddac;border-radius:100%;left:50%;top:-4px}
+.halo:after{background:#d0b5ff;box-shadow:0 0 20px #ad8aff;left:calc(50% - 4px);top:auto;bottom:-4px}
+.glyph{z-index:2;font-size:clamp(180px,30vw,295px);font-family:Georgia,"Times New Roman",serif;font-weight:900;letter-spacing:-.07em;line-height:1;color:#fff2da;text-shadow:0 0 13px #fff9,0 0 60px #fac17a8a,0 0 135px #ae80ed99;transform:translateX(-14px);animation:breathe 4.5s ease-in-out infinite}
+.stage .corner{position:absolute;font-size:10px;letter-spacing:.18em;color:#d6c6da;text-transform:uppercase;font-weight:900;left:20px;top:20px}
+.stage .edge{position:absolute;font-size:10px;letter-spacing:.18em;color:#ffcc93;text-transform:uppercase;font-weight:900;right:20px;bottom:20px}
+.stage .wave{position:absolute;bottom:21px;left:20px;display:flex;align-items:center;gap:4px;height:28px}
+.stage .wave i{width:3px;height:6px;display:block;background:linear-gradient(#ffe7b9,#c3a1ff);border-radius:4px;animation:eq 1.2s ease-in-out infinite alternate;animation-delay:calc(var(--i) * -90ms)}
+@keyframes eq{from{height:5px}to{height:24px}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes breathe{50%{transform:translateX(-14px) scale(1.035);filter:brightness(1.12)}}
+.ribbon{border-top:1px solid #50445f;border-bottom:1px solid #50445f;background:#12131e90}
+.ribbon .inner{display:flex;align-items:center;justify-content:space-between;gap:15px;padding:15px 0;flex-wrap:wrap;color:#c9c5da;font-size:11px;letter-spacing:.11em;text-transform:uppercase;font-weight:800}
+.ribbon b{color:var(--gold)}
+.section{padding:74px 0 0;scroll-margin-top:83px}
+h2{font-size:clamp(32px,5vw,55px);line-height:1.08;letter-spacing:-.05em;margin:16px 0 16px}
+.intro{color:var(--muted);max-width:900px;line-height:1.8;margin-bottom:27px}
+.panel{background:linear-gradient(147deg,#151724ef,#0c0e17ed);border:1px solid #474158;border-radius:22px;box-shadow:0 12px 38px #0005}
+.toolbar{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:16px;padding:18px 20px;margin-top:24px}
+.toolbar .state{font-size:13px;color:var(--muted)}
+.toolbar .state b{color:#f1d1a4;font-size:20px;margin-right:8px}
+.tests{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:17px}
+.test{padding:22px;position:relative;min-height:212px;display:flex;flex-direction:column;gap:12px}
+.test .num{color:#ffce90;font-size:12px;font-weight:900;letter-spacing:.18em}
+.test h3{font-size:20px;margin:0;letter-spacing:-.04em}
+.test p{font-size:13px;line-height:1.7;color:#c7c3d6;margin:0}
+.test .test-bottom{margin-top:auto;display:flex;align-items:center;justify-content:space-between;gap:6px}
+.tag{font-size:10px;letter-spacing:.1em;color:#b6b3c7;border:1px solid #535064;border-radius:999px;padding:5px 9px;font-weight:850;text-transform:uppercase}
+.tag.pass{color:#b0f1ca;border-color:#5a9275;background:#133c2b7a}
+.tag.fail{color:#ffc2c2;border-color:#9a626a;background:#431c227a}
+.tag.warn{color:#ffe0a5;border-color:#a07c48;background:#4e38187a}
+.test .detail{font-size:11px;line-height:1.55;color:#c5c5d7;overflow-wrap:anywhere;min-height:2.5em}
+.runner{margin-top:18px;padding:21px 22px;display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}
+.runner p{margin:0;color:var(--muted);font-size:12px;line-height:1.6}
+.labgrid{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(310px,.8fr);gap:18px;margin-top:28px}
+.lab-panel{padding:26px}
+.lab-panel h3{font-size:22px;letter-spacing:-.03em;margin:0 0 7px}
+.lab-panel p{color:#c7c3d6;font-size:13px;line-height:1.75}
+.audio-visual{display:flex;align-items:flex-end;height:116px;gap:3px;border:1px solid #50435f;border-radius:14px;padding:18px 13px;background:radial-gradient(circle at 50% 130%,#b694ef34,transparent 70%),#0b0d17;overflow:hidden}
+.audio-visual i{display:block;flex:1;height:var(--h);border-radius:5px 5px 0 0;background:linear-gradient(180deg,#ffe5a3,#bd96ff);opacity:.85;transform-origin:bottom;transition:height .2s}
+.audio-visual.playing i{animation:pulse .8s ease-in-out infinite alternate;animation-delay:calc(var(--i) * -37ms)}
+@keyframes pulse{to{transform:scaleY(.30)}}
+.audio-controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.audio-note{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;color:#d6c5b2;font-size:11px!important;overflow-wrap:anywhere}
+.six-proofs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:17px;margin:25px 0 0}
+.proof{padding:25px;display:flex;flex-direction:column;gap:8px;min-height:208px}
+.proof .pt{color:var(--gold);letter-spacing:.13em;font-weight:900;font-size:10px;text-transform:uppercase}
+.proof h3{font-size:21px;margin:5px 0 2px;letter-spacing:-.025em}
+.proof p{margin:0;color:#cbc7d9;font-size:13px;line-height:1.7}
+.proof a{margin-top:auto;font-size:12px}
+.manifest{margin-top:27px;border-left:3px solid #ffce93;padding:18px 24px;background:linear-gradient(90deg,#30202b77,transparent);color:#dfd6e9;font-size:14px;line-height:1.85}
+.manifest strong{color:var(--gold)}
+.footer{border-top:1px solid #48435a;margin-top:80px;padding:27px 0 43px;color:#a9a6ba;font-size:12px}
+.footer .wrap{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
+code{background:#292338;padding:1px 5px;border-radius:3px;color:#ffe2ac;overflow-wrap:anywhere}
+.output{font-size:12px;color:#ecd3b4;min-height:32px;margin-top:14px;line-height:1.65;overflow-wrap:anywhere}
+.hidden{display:none!important}
+@media(max-width:950px){.hero{grid-template-columns:1fr;min-height:auto;padding-top:55px}.stage{max-width:540px;width:100%;min-height:320px;justify-self:center}.glyph{font-size:240px}.tests{grid-template-columns:repeat(2,minmax(0,1fr))}.labgrid{grid-template-columns:1fr}}
+@media(max-width:590px){.wrap{width:min(100% - 30px,1190px)}.head{min-height:64px}.brand{font-size:12px;letter-spacing:.12em}.brand small{display:none}nav{gap:12px}nav a{font-size:10px;letter-spacing:0}.hero{padding:49px 0 30px;gap:22px}h1{font-size:clamp(62px,16vw,94px)}.hero .lede{font-size:17px}.stage{min-height:312px;aspect-ratio:1.14}.glyph{font-size:192px}.tests{grid-template-columns:1fr}.test{min-height:176px}.six-proofs{grid-template-columns:1fr}.section{padding-top:58px}.lab-panel{padding:19px}.toolbar,.runner{padding:17px}.stage .corner,.stage .edge{font-size:8px}.ribbon .inner{font-size:10px}.actionrow{gap:9px}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<a class="skip" href="#six-lab">Skip to Six Lab</a>
+<header><div class="wrap head"><a class="brand" href="#top"><span class="bmark" aria-hidden="true">6</span>ECLIPSE <small>/ SIX SIGNAL</small></a><nav aria-label="Main navigation"><a href="#six-lab">THE SIX</a><a href="#audio">SOUND</a><a href="#receipts">RECEIPTS</a></nav></div></header>
+<main id="top">
+<div class="wrap"><section class="hero" aria-label="Introduction"><div><div class="chapter">ECLIPSE STK × LILLY / THE OPEN GIFT</div><h1>NO TALK.<br><em>SIX</em> RECEIPTS.</h1><p class="lede">Not a diss. A demonstration. Six browser-native checks, a new original 32-bit audio signal, and proof you can inspect for yourself.</p><div class="actionrow"><a class="btn" href="#six-lab">Run the six <span aria-hidden="true">↘</span></a><a class="btn ghost" href="../">Meet Lilly’s local AI <span aria-hidden="true">↗</span></a></div><div class="liveflag">OPEN SOURCE • NO SIGN-IN • NO MODEL DOWNLOAD REQUIRED</div><p class="fine">Nothing starts automatically. The six-check run may store only this public page for optional offline reloading inside this demo’s own service-worker scope. It does not open your microphone, access ECLIPSE music, or touch other site archives.</p></div><div class="stage" aria-label="Animated six-shaped light sculpture" role="img"><div class="halo"></div><div class="glyph" aria-hidden="true">6</div><span class="corner">ONE SIGNAL / SIX TESTS</span><span class="edge">PROOF, NOT PROMISE</span><div class="wave" aria-hidden="true"><i style="--i:1"></i><i style="--i:2"></i><i style="--i:3"></i><i style="--i:4"></i><i style="--i:5"></i><i style="--i:6"></i><i style="--i:7"></i><i style="--i:8"></i><i style="--i:9"></i><i style="--i:10"></i></div></div></section></div>
+<div class="ribbon"><div class="wrap inner"><span><b>01</b> LIVE BROWSER TESTS</span><span><b>02</b> 32-BIT FLOAT WAV</span><span><b>03</b> OFFLINE PAGE CACHE</span><span><b>04</b> ZERO PRIVATE DATA</span></div></div>
+<div class="wrap"><section class="section" id="six-lab"><div class="chapter">01 / The six-shot laboratory</div><h2>Six tests. Observable results.</h2><p class="intro">Every green light must come from executable checks on your browser. Failed checks stay visible, and unsupported features are reported without pretending they passed. These are demonstrations of browser features—not a certification of iOS hardware output, device storage permanence, or the full ECLIPSE platform.</p><div class="toolbar panel"><div class="state"><b id="score" aria-live="polite">— / 6</b><span id="scoreDesc">Ready when you are</span></div><div class="actionrow" style="margin:0"><button class="btn" id="runBtn" type="button">RUN THE SIX</button><button class="btn faint small" id="reportBtn" type="button" disabled>Save evidence report</button></div></div><div class="tests" id="tests" aria-live="polite">
+<article class="test panel" data-test="0"><div class="num">CHECK 01 / AUDIO ENCODING</div><h3>32-bit in the bytes</h3><p>Generate a genuine IEEE float WAV and parse its RIFF header.</p><div class="test-bottom"><span class="tag">Not run</span></div><div class="detail"></div></article>
+<article class="test panel" data-test="1"><div class="num">CHECK 02 / STEREO TRUTH</div><h3>Two real channels</h3><p>Read both waveform channels back from encoded data and compare samples.</p><div class="test-bottom"><span class="tag">Not run</span></div><div class="detail"></div></article>
+<article class="test panel" data-test="2"><div class="num">CHECK 03 / CRYPTOGRAPHY</div><h3>SHA-256 known answer</h3><p>Use browser Web Crypto and verify against a fixed known digest.</p><div class="test-bottom"><span class="tag">Not run</span></div><div class="detail"></div></article>
+<article class="test panel" data-test="3"><div class="num">CHECK 04 / RUNTIME</div><h3>WASM without downloads</h3><p>Validate a minimal WebAssembly binary entirely in the browser.</p><div class="test-bottom"><span class="tag">Not run</span></div><div class="detail"></div></article>
+<article class="test panel" data-test="4"><div class="num">CHECK 05 / PORTABILITY</div><h3>Self-contained and readable</h3><p>Check that the page has no external script/style assets and no horizontal scroll.</p><div class="test-bottom"><span class="tag">Not run</span></div><div class="detail"></div></article>
+<article class="test panel" data-test="5"><div class="num">CHECK 06 / OFFLINE SHELL</div><h3>Install a small offline copy</h3><p>Register a narrowly scoped service worker and confirm this page is cached.</p><div class="test-bottom"><span class="tag">Not run</span></div><div class="detail"></div></article>
+</div><div class="runner panel"><p id="testNote" role="status">Checks only this public demo. The audio sample remains in memory unless you choose to download it. The offline page can be erased using the Reset offline copy button.</p><button id="resetBtn" class="btn faint small" type="button">Reset offline copy</button></div></section>
+<section class="section" id="audio"><div class="chapter">02 / A sound nobody had to license</div><h2>The original Six Signal.</h2><p class="intro">This short, original six-note sound is generated locally using mathematics—not taken from any artist’s catalog. Download the actual 32-bit float stereo WAV and inspect the file yourself. Browser playback may resample or convert it for your device’s speakers.</p><div class="labgrid"><div class="panel lab-panel"><h3>SIX SIGNAL / 6-second WAV</h3><p>48,000 samples/sec · 2 channels · IEEE Float32 · 6.00 seconds · generated entirely on your device</p><div class="audio-visual" id="audioVisual" aria-hidden="true"></div><div class="audio-controls"><button class="btn small" id="makeBtn" type="button">Generate original</button><button class="btn ghost small" id="playBtn" type="button" disabled>▶ Listen</button><button class="btn ghost small" id="stopBtn" type="button" disabled>■ Stop</button><button class="btn faint small" id="downloadBtn" type="button" disabled>↓ Download WAV</button></div><div class="output" id="audioState" role="status">Nothing generated. No audio plays until you press Listen.</div></div><div class="panel lab-panel"><div class="chapter">Important technical boundary</div><h3>Source precision ≠ output precision</h3><p>The WAV is verifiably IEEE float32 in the <em>file</em>. The final audio route—Safari, Web Audio, Bluetooth, DAC, headphones—is controlled by the browser and device. This demo cannot measure their delivered bit depth.</p><p>“Airplane mode” means using files and an offline page already saved before disconnecting; it is not streaming from the internet while disconnected.</p><p class="audio-note">You can download this audio to Files or your computer. The source audio is generated here rather than fetched from ECLIPSE or any third-party server.</p></div></div></section>
+<section class="section" id="receipts"><div class="chapter">03 / The work behind the signal</div><h2>Six projects. Real boundaries.</h2><p class="intro">These are examples of free AI-assisted projects from a builder who believes useful software should reach people. “Public,” “tested,” and “prototype” mean different things; the labels stay visible on purpose.</p><div class="six-proofs">
+<article class="panel proof"><div class="pt">01 / Public music service</div><h3>ECLIPSE STK</h3><p>A public music and creative workspace with locally saved audio, a 32-bit-float original-file path, and a catalog. Safari compatibility and offline archive behavior are ongoing real-device engineering challenges.</p><a href="https://eclipsestk.com/" target="_blank" rel="noopener noreferrer">Explore live music site ↗</a></article>
+<article class="panel proof"><div class="pt">02 / Open local AI demonstration</div><h3>Lilly / Jarvis legacy</h3><p>An independent browser-side Qwen model integration with opt-in loading, identity, runtime controls and clear limitations. The public demo is not ChatGPT and is not a newly trained model.</p><a href="../" target="_blank" rel="noopener noreferrer">Meet Lilly and inspect source ↗</a></article>
+<article class="panel proof"><div class="pt">03 / Public gift for an author</div><h3>Message to the Hood</h3><p>A reflective companion website built for Phil Blax. A published page was verified signed-out; local-model responses were tested, including documented weaknesses in advice quality.</p><a href="https://message-to-the-hood.bronze-aphid-7239.chatgpt.site/" target="_blank" rel="noopener noreferrer">Visit Phil’s public gift ↗</a></article>
+<article class="panel proof"><div class="pt">04 / Public streaming beta</div><h3>Ziggy’s Dungeon</h3><p>A browser-based community-streaming experiment with independent handle/password accounts and a local AI option. Its reported API checks do not establish universal cross-network streaming reliability.</p><a href="https://ziggys-dungeon.bronze-aphid-7239.chatgpt.site/" target="_blank" rel="noopener noreferrer">Open the public beta ↗</a></article>
+<article class="panel proof"><div class="pt">05 / Source-reviewed companion</div><h3>Wizship</h3><p>A reflection and writing assistant for Wiz; the revised local build addressed duplicate-answer and cancellation paths, with owner deployment required to update the existing site.</p><a href="https://shawize-sketch.github.io/Size/" target="_blank" rel="noopener noreferrer">Existing site (not necessarily latest build) ↗</a></article>
+<article class="panel proof"><div class="pt">06 / Reproducible prototype</div><h3>ECLIPSE Duel Force</h3><p>A browser-based card-game prototype with 404 original cards and three local gameplay test passes. An experimental browser build, not a shipped native game.</p><a href="https://github.com/floresjoshua0426-stack/eclipsestk/tree/main/openai-gift" target="_blank" rel="noopener noreferrer">Explore the engineering gift ↗</a></article>
+</div><div class="manifest"><strong>The point isn't winning a comparison.</strong> It's making something useful and showing exactly how it works, what failed, and how it can be improved. This is an independent, free and nonexclusive project gift by Saif Parchment, built with AI assistance. It is not affiliated with or endorsed by OpenAI, Drake, Apple, or any music artist.</div><div class="actionrow"><a class="btn" href="https://github.com/floresjoshua0426-stack/eclipsestk/tree/main/openai-gift/six-signal" target="_blank" rel="noopener noreferrer">Inspect the source</a><a class="btn ghost" href="../">Try the optional Lilly model</a></div></section></div>
+</main><footer class="footer"><div class="wrap"><span>THE SIX SIGNAL · ECLIPSE STK · 2026<br>Six checks. One original sound. No stolen music.</span><span>By Saif Parchment, with AI assistance · <a href="../">Open Lilly gift</a> · <a href="https://openai.com/careers/">OpenAI careers</a></span></div></footer>
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const SAMPLE_RATE=48000,SECONDS=6,CHANNELS=2,SAMPLES=SAMPLE_RATE*SECONDS,HEADER=44;
+const TESTS=6, results=new Array(TESTS).fill(null);
+const buttonIds=['runBtn','reportBtn','resetBtn','makeBtn','playBtn','stopBtn','downloadBtn'];
+let wave=null, wavBuffer=null, audioContext=null, audioSource=null, running=false, latestReport='';
+function logTest(i,state,message){const root=document.querySelector('[data-test="'+i+'"]');const badge=root.querySelector('.tag');badge.textContent=state==='pass'?'PASS':state==='warn'?'LIMITED':'FAIL';badge.className='tag '+state;root.querySelector('.detail').textContent=message;results[i]={state,message};const count=results.filter(x=>x?.state==='pass').length;const done=results.filter(Boolean).length;$('score').textContent=count+' / 6';$('scoreDesc').textContent=done===TESTS?(count===TESTS?'Six independent checks passed on this browser.':'All tests finished; read the individual outcomes.'):'Running '+done+' of six…';}
+function makeStereo(){if(wave)return wave;const a=new Float32Array(SAMPLES),b=new Float32Array(SAMPLES);const freqs=[220,277.18,329.63,440,554.37,659.25];for(let i=0;i<SAMPLES;i++){const t=i/SAMPLE_RATE;const seg=Math.min(5,Math.floor(t));const phase=t-seg;const glide=.5*(1-Math.cos(Math.min(1,phase*1.75)*Math.PI));const hz=freqs[seg];const env=(1-Math.exp(-Math.max(0,phase)*12))*Math.exp(-phase*1.9)*Math.min(1,t*4,Math.max(0,(SECONDS-t)*4));const tone=Math.sin(2*Math.PI*hz*t)*(0.12+0.04*glide);const bell=Math.sin(2*Math.PI*hz*2.005*t)*0.035;const drone=Math.sin(2*Math.PI*110*t)*0.018*Math.sin(Math.PI*t/SECONDS);const val=env*(tone+bell)+drone;a[i]=Math.max(-.35,Math.min(.35,val));b[i]=Math.max(-.35,Math.min(.35,val*.92+.014*env*Math.sin(2*Math.PI*hz*(t-.005))));}wave=[a,b];return wave;}
+function wavEncode(){if(wavBuffer)return wavBuffer;const [left,right]=makeStereo();const bytes=HEADER+SAMPLES*CHANNELS*4;const arr=new ArrayBuffer(bytes);const view=new DataView(arr);function word(pos,value){view.setUint32(pos,value,true)}function short(pos,value){view.setUint16(pos,value,true)}function text(pos,str){for(let i=0;i<str.length;i++)view.setUint8(pos+i,str.charCodeAt(i))}text(0,'RIFF');word(4,bytes-8);text(8,'WAVE');text(12,'fmt ');word(16,16);short(20,3);short(22,CHANNELS);word(24,SAMPLE_RATE);word(28,SAMPLE_RATE*CHANNELS*4);short(32,CHANNELS*4);short(34,32);text(36,'data');word(40,SAMPLES*CHANNELS*4);for(let i=0;i<SAMPLES;i++){const ofs=HEADER+i*8;view.setFloat32(ofs,left[i],true);view.setFloat32(ofs+4,right[i],true);}wavBuffer=arr;return arr;}
+function parseWav(ab){const view=new DataView(ab);const part=(pos,len)=>String.fromCharCode(...new Uint8Array(ab,pos,len));return {riff:part(0,4),wave:part(8,4),fmt:part(12,4),format:view.getUint16(20,true),channels:view.getUint16(22,true),rate:view.getUint32(24,true),depth:view.getUint16(34,true),data:part(36,4),length:view.getUint32(40,true),bytes:ab.byteLength,left0:view.getFloat32(HEADER+8*997,true),right0:view.getFloat32(HEADER+8*997+4,true)};}
+async function sixOffline(){if(!isSecureContext||!('serviceWorker' in navigator)||!('caches' in window))return {state:'warn',message:'This browser/context does not support secure offline caching.'};try{const reg=await navigator.serviceWorker.register('./sw.js',{scope:'./'});await navigator.serviceWorker.ready;const cache=await caches.open('six-signal-shell-v1');let saved=await cache.match(new URL('./index.html',location.href).href);if(!saved){ // Startup may not have finished installing; attempt explicit public shell write after visitor opt-in.
+ const res=await fetch('./index.html',{cache:'no-cache'});if(!res.ok)throw Error('Page fetch failed ('+res.status+').');await cache.put(new URL('./index.html',location.href).href,res.clone());saved=await cache.match(new URL('./index.html',location.href).href);
+ }
+ return {state:saved?'pass':'fail',message:saved?'Demo shell cached. Now reload this exact page after disconnecting; model/audio libraries are NOT cached.':'No cached HTML response found.'};
+}catch(e){return {state:'warn',message:'Offline copy unavailable: '+String(e?.message||e).slice(0,130)};}}
+async function testAll(){if(running)return;running=true;$('runBtn').disabled=true;$('reportBtn').disabled=true;$('scoreDesc').textContent='Checking this browser…';try{
+ try{const w=parseWav(wavEncode());const ok=w.riff==='RIFF'&&w.wave==='WAVE'&&w.fmt==='fmt '&&w.data==='data'&&w.format===3&&w.depth===32&&w.rate===48000&&w.channels===2&&w.length===SAMPLES*8&&w.bytes===w.length+44;logTest(0,ok?'pass':'fail',ok?'RIFF/WAVE fmt=3; Float32; 48 kHz stereo; 6 seconds; '+w.bytes.toLocaleString()+' bytes.':'WAV header did not match the stated format.');}catch(e){logTest(0,'fail',String(e?.message||e));}
+ await new Promise(r=>setTimeout(r,45));
+ try{const w=makeStereo(),v=new DataView(wavEncode()),idx=997,lv=v.getFloat32(HEADER+idx*8,true),rv=v.getFloat32(HEADER+idx*8+4,true);const ok=Math.abs(lv-w[0][idx])<1e-7&&Math.abs(rv-w[1][idx])<1e-7&&Math.abs(lv-rv)>1e-6;logTest(1,ok?'pass':'fail',ok?'Both channels decoded accurately at sample 997; left/right contain independent sample values.':'Stereo sample comparison failed.');}catch(e){logTest(1,'fail',String(e?.message||e));}
+ await new Promise(r=>setTimeout(r,45));
+ try{if(!crypto?.subtle)throw Error('Web Crypto not available in this context.');const payload=new TextEncoder().encode('SIX SIGNAL | ECLIPSE STK | 2026');const buf=await crypto.subtle.digest('SHA-256',payload);const digest=Array.from(new Uint8Array(buf)).map(x=>x.toString(16).padStart(2,'0')).join('');const expected='4a9705ebf8859c78e8ea9b07fafe25fe0d85059e9b493d1acf1a7f89f492136e';const ok=digest===expected;logTest(2,ok?'pass':'fail',ok?'Verified known digest: '+digest.slice(0,16)+'…':'Computed SHA-256 does not match reference ('+digest.slice(0,16)+'…).');}catch(e){logTest(2,'warn',String(e?.message||e));}
+ await new Promise(r=>setTimeout(r,45));
+ try{if(!WebAssembly?.validate)throw Error('WebAssembly is not exposed.');const ok=WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,0,0]));logTest(3,ok?'pass':'fail',ok?'Empty WASM v1 module passes the browser validator.':'The browser rejected the minimal WASM binary.');}catch(e){logTest(3,'warn',String(e?.message||e));}
+ await new Promise(r=>setTimeout(r,45));
+ try{const scripts=[...document.scripts];const noExternal=scripts.every(s=>!s.src)&&![...document.querySelectorAll('link[rel="stylesheet"]')].some(l=>l.href)&&![...document.querySelectorAll('img[src]')].some(l=>/^https?:\/\//.test(l.src));const fits=document.documentElement.scrollWidth<=window.innerWidth+2;const ok=noExternal&&fits;logTest(4,ok?'pass':'fail',`External script/style/image imports: ${noExternal?'none':'detected'}. Horizontal overflow: ${fits?'none':'detected'} at ${window.innerWidth}px.`);}catch(e){logTest(4,'fail',String(e?.message||e));}
+ await new Promise(r=>setTimeout(r,45));const o=await sixOffline();logTest(5,o.state,o.message);
+ } finally{running=false;$('runBtn').disabled=false;$('reportBtn').disabled=false;latestReport=buildReport();$('testNote').textContent=results[5]?.state==='pass'?'Page-only offline cache is ready; you can check by reloading this path with your network disabled. Use Reset offline copy to remove it.':'Review the results; no claim of offline reliability is made for unsupported browsers.';}}
+function buildReport(){return ['THE SIX SIGNAL — LOCAL BROWSER EVIDENCE','Project: independent ECLIPSE STK × Lilly gift','Timestamp: '+new Date().toISOString(),'Site: '+location.href,'Platform: '+navigator.userAgent,'Status: '+results.filter(r=>r?.state==='pass').length+'/6 passed','',...results.map((r,i)=>`CHECK ${String(i+1).padStart(2,'0')} | ${(r?.state||'not_run').toUpperCase()} | ${r?.message||'Not run'}`),'','Scope: browser-local test, not a physical iPhone or output-resolution certificate.','A passed cache check does not prove an offline reload until you test it.','32-bit float describes the generated source WAV file, not the DAC output.','Page does not send results to a server.'].join('\n');}
+function download(blob,name){const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);}
+function makeAudio(){wavEncode();$('playBtn').disabled=false;$('downloadBtn').disabled=false;$('audioState').textContent='Original 6-second Float32 WAV generated entirely in this browser ('+(wavBuffer.byteLength/1e6).toFixed(3)+' MB). Press Listen to play or Download WAV to save.';}
+function stopAudio(){try{if(audioSource){audioSource.stop();audioSource.disconnect();audioSource=null;}}catch{}$('audioVisual').classList.remove('playing');$('stopBtn').disabled=true;$('playBtn').disabled=!wave;$('audioState').textContent=wave?'Playback stopped. Your generated WAV is still available to download.':'No audio is playing.';}
+async function playAudio(){try{if(!wave)makeAudio();stopAudio();const AC=window.AudioContext||window.webkitAudioContext;if(!AC)throw Error('Web Audio playback is not available. Download the WAV to inspect it in another program.');if(!audioContext)audioContext=new AC();const resumed=audioContext.resume();const buffer=audioContext.createBuffer(2,SAMPLES,SAMPLE_RATE);buffer.copyToChannel(wave[0],0);buffer.copyToChannel(wave[1],1);audioSource=audioContext.createBufferSource();audioSource.buffer=buffer;audioSource.connect(audioContext.destination);audioSource.onended=()=>{audioSource=null;$('audioVisual').classList.remove('playing');$('stopBtn').disabled=true;$('playBtn').disabled=false;$('audioState').textContent='Six Signal finished. Web Audio playback does not certify output bit depth.'};audioSource.start();await resumed;$('audioVisual').classList.add('playing');$('playBtn').disabled=true;$('stopBtn').disabled=false;$('audioState').textContent='Playing original six-note tone through Web Audio. Device output format remains browser-controlled.';}catch(e){stopAudio();$('audioState').textContent='Playback unavailable: '+String(e?.message||e).slice(0,180);}}
+async function resetOffline(){try{const cache=await caches.keys();await Promise.all(cache.filter(x=>x.startsWith('six-signal-shell-')).map(x=>caches.delete(x)));if('serviceWorker' in navigator){const reg=await navigator.serviceWorker.getRegistration('./');if(reg&&reg.scope.endsWith('/openai-gift/six-signal/'))await reg.unregister();else if(reg&&reg.scope.endsWith('/six-signal/'))await reg.unregister();}$('testNote').textContent='Offline page copy cleared where supported. This does not erase or affect your music or the main Lilly demo. Reopen online to reinstall.';if(results[5])logTest(5,'warn','Offline page cache cleared at visitor request.');}catch(e){$('testNote').textContent='Unable to clear offline copy: '+String(e?.message||e).slice(0,140);}}
+$('runBtn').addEventListener('click',testAll);
+$('reportBtn').addEventListener('click',()=>download(new Blob([buildReport()],{type:'text/plain;charset=utf-8'}),'SIX-SIGNAL-LOCAL-EVIDENCE.txt'));
+$('resetBtn').addEventListener('click',resetOffline);
+$('makeBtn').addEventListener('click',makeAudio);
+$('playBtn').addEventListener('click',playAudio);
+$('stopBtn').addEventListener('click',stopAudio);
+$('downloadBtn').addEventListener('click',()=>{if(!wavBuffer)return;download(new Blob([wavBuffer],{type:'audio/wav'}),'Six_Signal_Original_By_ECLIPSE_32bitFloat_48kHz.wav');});
+const viz=$('audioVisual');for(let i=0;i<60;i++){const el=document.createElement('i');el.style.setProperty('--i',i);el.style.setProperty('--h',(12+65*Math.abs(Math.sin(i*.33)*Math.cos(i*.19)))+'%');viz.appendChild(el)}
+})();
+</script>
+</body>
+</html>
