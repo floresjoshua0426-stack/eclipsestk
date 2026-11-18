@@ -1,5 +1,9 @@
 # LILLY — ECLIPSE STK × OpenAI gift
 
+## NEW: The Six Signal — live, inspectable browser lab
+
+Run the six-check showcase and generate an original, downloadable IEEE float32 stereo WAV at **[the Six Signal demo](./six-signal/)**. A separate [verification record](./six-signal/VERIFICATION.md) distinguishes live browser checks from mocked worker tests and secure-hosting/device acceptance still pending. The demo does not use private ECLIPSE music or credentials, and the 32-bit sample-file format is not a device-output precision claim.
+
 A public, opt-in browser inference demonstration from Saif Parchment, built through AI-assisted iteration and shared freely for others to inspect and learn from. **Not affiliated with or endorsed by OpenAI.**
 
 ## What is actually in this gift
