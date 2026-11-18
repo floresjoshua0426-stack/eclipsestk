@@ -1,0 +1,7 @@
+/* THE SIX SIGNAL — scoped offline shell worker; never intercepts ECLIPSE or Lilly outside /six-signal/ */
+'use strict';
+const NAME='six-signal-shell-v1';
+const HOME=new URL('./index.html',self.registration.scope).href;
+self.addEventListener('install',event=>event.waitUntil((async()=>{const cache=await caches.open(NAME);await cache.add(HOME);await self.skipWaiting();})()));
+self.addEventListener('activate',event=>event.waitUntil((async()=>{const names=await caches.keys();await Promise.all(names.filter(n=>n.startsWith('six-signal-shell-')&&n!==NAME).map(n=>caches.delete(n)));await self.clients.claim();})()));
+self.addEventListener('fetch',event=>{const req=event.request;const target=new URL(req.url);const scope=new URL(self.registration.scope);if(req.mode!=='navigate'||target.origin!==scope.origin||!target.pathname.startsWith(scope.pathname))return;event.respondWith((async()=>{try{const response=await fetch(req);if(response.ok){const cache=await caches.open(NAME);await cache.put(HOME,response.clone());}return response;}catch{const saved=await caches.match(HOME);return saved||new Response('Six Signal offline copy is unavailable. Return online to open it again.',{status:503,headers:{'Content-Type':'text/plain;charset=utf-8'}});}})());});
